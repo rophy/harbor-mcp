@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	mcpServerURL = envOr("MCP_SERVER_URL", "http://localhost:8080")
+	mcpServerURL = envOr("MCP_SERVER_URL", "http://localhost:28080")
 	harborURL    = envOr("HARBOR_URL", "http://localhost:8880")
 )
 

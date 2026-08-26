@@ -72,7 +72,7 @@ docker compose up -d harbor-mcp
 
 echo "==> Waiting for harbor-mcp to be ready..."
 for i in $(seq 1 30); do
-  if curl -sf "http://localhost:8080/.well-known/oauth-authorization-server" > /dev/null 2>&1; then
+  if curl -sf "http://localhost:28080/.well-known/oauth-authorization-server" > /dev/null 2>&1; then
     echo "    harbor-mcp is ready (after ${i}s)"
     break
   fi
@@ -87,8 +87,8 @@ done
 echo ""
 echo "==> E2E environment is ready!"
 echo "    Harbor:     ${HARBOR_URL} (admin / ${ADMIN_PASS})"
-echo "    OIDC Mock:  http://localhost:8090"
-echo "    harbor-mcp: http://localhost:8080"
+echo "    OIDC Mock:  http://localhost:28090"
+echo "    harbor-mcp: http://localhost:28080"
 echo "    Robot:      ${ROBOT_NAME}"
 echo ""
 echo "    Run tests:  go test -tags e2e ./e2e/"

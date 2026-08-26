@@ -163,7 +163,7 @@ services:
   oidc-mock:
     image: ghcr.io/rophy/oidc-mock:latest
     ports:
-      - "8090:8080"
+      - "28090:8080"
     environment:
       OIDC_CONFIG: |
         issuer: http://oidc-mock:8080
@@ -171,7 +171,7 @@ services:
           - id: harbor-mcp
             secret: test-secret
             redirect_uris:
-              - http://localhost:8080/auth/callback
+              - http://localhost:28080/auth/callback
         users:
           - sub: alice
             email: alice@example.com
@@ -194,7 +194,7 @@ services:
       oidc-mock:
         condition: service_started
     ports:
-      - "8080:8080"
+      - "28080:8080"
     environment:
       HARBOR_URL: http://harbor-nginx:8080
       HARBOR_ROBOT_NAME: ${HARBOR_ROBOT_NAME:-robot$$mcp-reader}
@@ -202,7 +202,7 @@ services:
       OAUTH_UPSTREAM_ISSUER: http://oidc-mock:8080
       OAUTH_UPSTREAM_CLIENT_ID: harbor-mcp
       OAUTH_UPSTREAM_CLIENT_SECRET: test-secret
-      SERVER_BASE_URL: http://localhost:8080
+      SERVER_BASE_URL: http://localhost:28080
 
 volumes:
   harbor-db-data:
