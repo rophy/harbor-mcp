@@ -23,7 +23,6 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "harbor-mcp",
 	Short: "MCP server for Harbor container registry",
-	Long:  harbormcp.Readme,
 }
 
 var serveCmd = &cobra.Command{
@@ -32,8 +31,17 @@ var serveCmd = &cobra.Command{
 	RunE:  runServe,
 }
 
+var helpCmd = &cobra.Command{
+	Use:   "help",
+	Short: "Show full documentation (README)",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Print(harbormcp.Readme)
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.SetHelpCommand(helpCmd)
 }
 
 func main() {
