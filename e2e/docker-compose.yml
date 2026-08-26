@@ -200,6 +200,7 @@ services:
       HARBOR_ROBOT_NAME: ${HARBOR_ROBOT_NAME:-robot$$mcp-reader}
       HARBOR_ROBOT_SECRET: ${HARBOR_ROBOT_SECRET:-changeme}
       OAUTH_UPSTREAM_ISSUER: http://oidc-mock:8080
+      OAUTH_UPSTREAM_EXTERNAL_URL: http://localhost:28090
       OAUTH_UPSTREAM_CLIENT_ID: harbor-mcp
       OAUTH_UPSTREAM_CLIENT_SECRET: test-secret
       SERVER_BASE_URL: http://localhost:28080

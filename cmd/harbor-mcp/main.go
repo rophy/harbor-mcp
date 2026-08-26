@@ -31,6 +31,7 @@ func main() {
 		cfg.OAuthUpstreamIssuer,
 		cfg.OAuthUpstreamClientID,
 		cfg.OAuthUpstreamClientSecret,
+		cfg.OAuthUpstreamExternalURL,
 	)
 	if err != nil {
 		log.Fatalf("failed to discover upstream OIDC: %v", err)

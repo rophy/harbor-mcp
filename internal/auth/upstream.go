@@ -13,8 +13,8 @@ type UpstreamOIDC struct {
 	Issuer                string
 	ClientID              string
 	ClientSecret          string
-	AuthorizationEndpoint string
-	TokenEndpoint         string
+	AuthorizationEndpoint string // browser-facing authorize URL
+	TokenEndpoint         string // server-to-server token URL
 }
 
 type UpstreamTokens struct {
@@ -28,7 +28,7 @@ type oidcDiscovery struct {
 	TokenEndpoint         string `json:"token_endpoint"`
 }
 
-func NewUpstreamOIDC(issuer, clientID, clientSecret string) (*UpstreamOIDC, error) {
+func NewUpstreamOIDC(issuer, clientID, clientSecret, externalURL string) (*UpstreamOIDC, error) {
 	discoveryURL := strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
 	resp, err := http.Get(discoveryURL)
 	if err != nil {
@@ -49,11 +49,16 @@ func NewUpstreamOIDC(issuer, clientID, clientSecret string) (*UpstreamOIDC, erro
 		return nil, fmt.Errorf("OIDC discovery missing required endpoints")
 	}
 
+	authEndpoint := disc.AuthorizationEndpoint
+	if externalURL != "" {
+		authEndpoint = strings.TrimRight(externalURL, "/") + "/authorize"
+	}
+
 	return &UpstreamOIDC{
 		Issuer:                issuer,
 		ClientID:              clientID,
 		ClientSecret:          clientSecret,
-		AuthorizationEndpoint: disc.AuthorizationEndpoint,
+		AuthorizationEndpoint: authEndpoint,
 		TokenEndpoint:         disc.TokenEndpoint,
 	}, nil
 }

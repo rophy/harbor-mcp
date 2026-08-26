@@ -92,7 +92,7 @@ func fullOAuthFlow(t *testing.T) string {
 	}
 
 	oidcRedirectURL := resp.Header.Get("Location")
-	if !strings.Contains(oidcRedirectURL, "oidc-mock") && !strings.Contains(oidcRedirectURL, "28090") && !strings.Contains(oidcRedirectURL, "/authorize") {
+	if !strings.Contains(oidcRedirectURL, "/authorize") {
 		t.Fatalf("authorize did not redirect to oidc-mock: %s", oidcRedirectURL)
 	}
 	t.Logf("redirected to oidc-mock: %s", oidcRedirectURL)
@@ -106,8 +106,6 @@ func fullOAuthFlow(t *testing.T) string {
 	upstreamRedirectURI := parsedOIDC.Query().Get("redirect_uri")
 
 	// Step 5: "Pick" user alice on oidc-mock by POSTing to /authorize/callback
-	// The oidc-mock URL uses internal docker hostname (oidc-mock:8080),
-	// but we need to hit it from the host (localhost:28090).
 	oidcCallbackData := url.Values{
 		"sub":          {"alice"},
 		"client_id":    {"harbor-mcp"},

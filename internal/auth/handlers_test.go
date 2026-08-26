@@ -33,7 +33,7 @@ func setupOAuthServer(t *testing.T) *httptest.Server {
 	}))
 	t.Cleanup(idp.Close)
 
-	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret")
+	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
 	if err != nil {
 		t.Fatalf("upstream setup: %v", err)
 	}

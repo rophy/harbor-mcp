@@ -23,7 +23,7 @@ func TestNewUpstreamOIDC(t *testing.T) {
 	}))
 	defer idp.Close()
 
-	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret")
+	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestNewUpstreamOIDC_DiscoveryFails(t *testing.T) {
 	}))
 	defer idp.Close()
 
-	_, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret")
+	_, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
 	if err == nil {
 		t.Fatal("expected error for failed discovery")
 	}
