@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "harbor": {
-      "type": "url",
-      "url": "http://localhost:28080/mcp"
-    }
-  }
-}

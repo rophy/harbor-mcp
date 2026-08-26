@@ -31,3 +31,4 @@ e2e/.env
 # Editor/IDE
 # .idea/
 # .vscode/
+.mcp.json
