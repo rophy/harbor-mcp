@@ -1,0 +1,211 @@
+services:
+  # --- Harbor infrastructure ---
+
+  harbor-db:
+    image: docker.io/goharbor/harbor-db:v2.15.2
+    environment:
+      POSTGRES_PASSWORD: changeit
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - harbor-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "/docker-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  harbor-redis:
+    image: docker.io/goharbor/valkey-photon:v2.15.2
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  harbor-registry:
+    image: docker.io/goharbor/registry-photon:v2.15.2
+    depends_on:
+      harbor-redis:
+        condition: service_healthy
+    environment:
+      REGISTRY_HTTP_SECRET: pNan41A6DGjqBPhG
+    volumes:
+      - registry-data:/storage
+      - ./config/registry/config.yml:/etc/registry/config.yml:ro
+      - ./config/registry/passwd:/etc/registry/passwd:ro
+
+  harbor-registryctl:
+    image: docker.io/goharbor/harbor-registryctl:v2.15.2
+    depends_on:
+      harbor-redis:
+        condition: service_healthy
+    environment:
+      REGISTRY_HTTP_SECRET: pNan41A6DGjqBPhG
+      CORE_SECRET: 35ahfO8BRUWiRGB7
+      JOBSERVICE_SECRET: LR5ugFvdCxkgmRsk
+    volumes:
+      - registry-data:/storage
+      - ./config/registry/config.yml:/etc/registry/config.yml:ro
+      - ./config/registry/ctl-config.yml:/etc/registryctl/config.yml:ro
+
+  harbor-core:
+    image: docker.io/goharbor/harbor-core:v2.15.2
+    depends_on:
+      harbor-db:
+        condition: service_healthy
+      harbor-redis:
+        condition: service_healthy
+      harbor-registry:
+        condition: service_started
+    environment:
+      PORT: "8080"
+      DATABASE_TYPE: postgresql
+      POSTGRESQL_HOST: harbor-db
+      POSTGRESQL_PORT: "5432"
+      POSTGRESQL_USERNAME: postgres
+      POSTGRESQL_PASSWORD: changeit
+      POSTGRESQL_DATABASE: registry
+      POSTGRESQL_SSLMODE: disable
+      POSTGRESQL_MAX_IDLE_CONNS: "100"
+      POSTGRESQL_MAX_OPEN_CONNS: "900"
+      EXT_ENDPOINT: http://localhost:8880
+      CORE_URL: http://harbor-core:8080
+      CORE_LOCAL_URL: http://127.0.0.1:8080
+      JOBSERVICE_URL: http://harbor-jobservice:8080
+      REGISTRY_URL: http://harbor-registry:5000
+      REGISTRY_CONTROLLER_URL: http://harbor-registryctl:8080
+      TOKEN_SERVICE_URL: http://harbor-core:8080/service/token
+      REGISTRY_CREDENTIAL_USERNAME: harbor_registry_user
+      REGISTRY_CREDENTIAL_PASSWORD: harbor_registry_password
+      HARBOR_ADMIN_PASSWORD: Harbor12345
+      CORE_SECRET: 35ahfO8BRUWiRGB7
+      JOBSERVICE_SECRET: LR5ugFvdCxkgmRsk
+      CSRF_KEY: YIcVMnxM5jOTCfmX7rYEcfBkiGezX7y8
+      CONFIG_PATH: /etc/core/app.conf
+      WITH_TRIVY: "false"
+      TRIVY_ADAPTER_URL: ""
+      REGISTRY_STORAGE_PROVIDER_NAME: filesystem
+      LOG_LEVEL: info
+      CHART_CACHE_DRIVER: redis
+      _REDIS_URL_CORE: "redis://harbor-redis:6379/0?idle_timeout_seconds=30"
+      _REDIS_URL_REG: "redis://harbor-redis:6379/2?idle_timeout_seconds=30"
+      PORTAL_URL: http://harbor-portal:8080
+      PERMITTED_REGISTRY_TYPES_FOR_PROXY_CACHE: "docker-hub,harbor,azure-acr,ali-acr,aws-ecr,google-gcr,docker-registry,github-ghcr,jfrog-artifactory"
+      QUOTA_UPDATE_PROVIDER: db
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "harbor-core,harbor-jobservice,harbor-db,harbor-registry,harbor-portal,127.0.0.1,localhost,.local,.internal"
+    volumes:
+      - ./config/core/app.conf:/etc/core/app.conf:ro
+      - ./config/core/private_key.pem:/etc/core/private_key.pem:ro
+      - ./config/core/secretkey:/etc/core/key:ro
+      - core-token:/etc/core/token
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/api/v2.0/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  harbor-jobservice:
+    image: docker.io/goharbor/harbor-jobservice:v2.15.2
+    depends_on:
+      harbor-core:
+        condition: service_healthy
+      harbor-redis:
+        condition: service_healthy
+    environment:
+      CORE_URL: http://harbor-core:8080
+      TOKEN_SERVICE_URL: http://harbor-core:8080/service/token
+      REGISTRY_URL: http://harbor-registry:5000
+      REGISTRY_CONTROLLER_URL: http://harbor-registryctl:8080
+      REGISTRY_CREDENTIAL_USERNAME: harbor_registry_user
+      REGISTRY_CREDENTIAL_PASSWORD: harbor_registry_password
+      REGISTRY_HTTP_CLIENT_TIMEOUT: "30"
+      JOBSERVICE_SECRET: LR5ugFvdCxkgmRsk
+      CORE_SECRET: 35ahfO8BRUWiRGB7
+      JOBSERVICE_WEBHOOK_JOB_MAX_RETRY: "3"
+      JOBSERVICE_WEBHOOK_JOB_HTTP_CLIENT_TIMEOUT: "3"
+      LOG_LEVEL: info
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "harbor-core,harbor-jobservice,harbor-db,harbor-registry,harbor-portal,127.0.0.1,localhost,.local,.internal"
+    volumes:
+      - ./config/jobservice/config.yml:/etc/jobservice/config.yml:ro
+      - jobservice-logs:/var/log/jobs
+
+  harbor-portal:
+    image: docker.io/goharbor/harbor-portal:v2.15.2
+    volumes:
+      - ./config/portal/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  harbor-nginx:
+    image: docker.io/goharbor/nginx-photon:v2.15.2
+    depends_on:
+      harbor-core:
+        condition: service_healthy
+      harbor-portal:
+        condition: service_started
+    ports:
+      - "8880:8080"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # --- OIDC Mock (upstream identity provider) ---
+
+  oidc-mock:
+    image: ghcr.io/rophy/oidc-mock:latest
+    ports:
+      - "8090:8080"
+    environment:
+      OIDC_CONFIG: |
+        issuer: http://oidc-mock:8080
+        clients:
+          - id: harbor-mcp
+            secret: test-secret
+            redirect_uris:
+              - http://localhost:8080/auth/callback
+        users:
+          - sub: alice
+            email: alice@example.com
+            name: Alice
+            roles: [admin]
+          - sub: bob
+            email: bob@example.com
+            name: Bob
+            roles: [viewer]
+
+  # --- harbor-mcp (our MCP server) ---
+
+  harbor-mcp:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    depends_on:
+      harbor-nginx:
+        condition: service_healthy
+      oidc-mock:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      HARBOR_URL: http://harbor-nginx:8080
+      HARBOR_ROBOT_NAME: ${HARBOR_ROBOT_NAME:-robot$$mcp-reader}
+      HARBOR_ROBOT_SECRET: ${HARBOR_ROBOT_SECRET:-changeme}
+      OAUTH_UPSTREAM_ISSUER: http://oidc-mock:8080
+      OAUTH_UPSTREAM_CLIENT_ID: harbor-mcp
+      OAUTH_UPSTREAM_CLIENT_SECRET: test-secret
+      SERVER_BASE_URL: http://localhost:8080
+
+volumes:
+  harbor-db-data:
+  registry-data:
+  core-token:
+  jobservice-logs:
