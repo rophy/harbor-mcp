@@ -204,9 +204,13 @@ services:
       OAUTH_UPSTREAM_CLIENT_ID: harbor-mcp
       OAUTH_UPSTREAM_CLIENT_SECRET: test-secret
       SERVER_BASE_URL: http://localhost:28080
+      DATA_DIR: /data
+    volumes:
+      - harbor-mcp-data:/data
 
 volumes:
   harbor-db-data:
   registry-data:
+  harbor-mcp-data:
   core-token:
   jobservice-logs:

@@ -195,4 +195,4 @@ func (s *MemoryStore) RevokeAccessToken(_ context.Context, requestID string) err
 	return nil
 }
 
-var _ fosite.Storage = (*MemoryStore)(nil)
+var _ Store = (*MemoryStore)(nil)

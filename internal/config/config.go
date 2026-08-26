@@ -15,6 +15,7 @@ type Config struct {
 	OAuthUpstreamClientSecret    string
 	OAuthUpstreamExternalURL     string // browser-reachable base URL for upstream OIDC (optional, overrides issuer for authorize redirect)
 	OAuthSigningKey              string
+	DataDir                      string
 	ServerBaseURL                string
 	ServerPort                   int
 }
@@ -44,6 +45,10 @@ func Load() (*Config, error) {
 
 	cfg.OAuthSigningKey = os.Getenv("OAUTH_SIGNING_KEY")
 	cfg.OAuthUpstreamExternalURL = os.Getenv("OAUTH_UPSTREAM_EXTERNAL_URL")
+	cfg.DataDir = os.Getenv("DATA_DIR")
+	if cfg.DataDir == "" {
+		cfg.DataDir = "/data"
+	}
 
 	if p := os.Getenv("SERVER_PORT"); p != "" {
 		port, err := strconv.Atoi(p)

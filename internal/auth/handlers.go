@@ -17,7 +17,7 @@ import (
 
 type OAuthHandlers struct {
 	provider fosite.OAuth2Provider
-	store    *MemoryStore
+	store    Store
 	upstream *UpstreamOIDC
 	baseURL  string
 	mu       sync.Mutex
@@ -32,7 +32,7 @@ type pendingAuth struct {
 
 const pendingAuthTTL = 10 * time.Minute
 
-func NewOAuthHandlers(provider fosite.OAuth2Provider, store *MemoryStore, upstream *UpstreamOIDC, baseURL string) *OAuthHandlers {
+func NewOAuthHandlers(provider fosite.OAuth2Provider, store Store, upstream *UpstreamOIDC, baseURL string) *OAuthHandlers {
 	return &OAuthHandlers{
 		provider: provider,
 		store:    store,

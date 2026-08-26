@@ -10,7 +10,12 @@ import (
 	"github.com/ory/fosite/compose"
 )
 
-func NewOAuthProvider(store *MemoryStore, signingKey *rsa.PrivateKey) fosite.OAuth2Provider {
+type Store interface {
+	fosite.Storage
+	RegisterClient(id string, redirectURIs []string)
+}
+
+func NewOAuthProvider(store Store, signingKey *rsa.PrivateKey) fosite.OAuth2Provider {
 	globalSecret := make([]byte, 32)
 	if _, err := rand.Read(globalSecret); err != nil {
 		panic(err)

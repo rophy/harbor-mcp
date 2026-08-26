@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rophy/harbor-mcp/internal/auth"
@@ -37,7 +38,12 @@ func main() {
 		log.Fatalf("failed to discover upstream OIDC: %v", err)
 	}
 
-	store := auth.NewMemoryStore()
+	dbPath := filepath.Join(cfg.DataDir, "harbor-mcp.db")
+	store, err := auth.NewSQLiteStore(dbPath)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer store.Close()
 	provider := auth.NewOAuthProvider(store, signingKey)
 	oauthHandlers := auth.NewOAuthHandlers(provider, store, upstream, cfg.ServerBaseURL)
 
