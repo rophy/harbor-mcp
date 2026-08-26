@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	harbormcp "github.com/rophy/harbor-mcp"
 	"github.com/rophy/harbor-mcp/internal/auth"
 	"github.com/rophy/harbor-mcp/internal/config"
 	"github.com/rophy/harbor-mcp/internal/harbor"
@@ -18,6 +20,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help") {
+		fmt.Print(harbormcp.Readme)
+		return
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
