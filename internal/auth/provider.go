@@ -43,5 +43,6 @@ func NewOAuthProvider(store *MemoryStore, signingKey *rsa.PrivateKey) fosite.OAu
 		compose.OAuth2AuthorizeExplicitFactory,
 		compose.OAuth2PKCEFactory,
 		compose.OAuth2RefreshTokenGrantFactory,
+		compose.OAuth2TokenIntrospectionFactory,
 	)
 }

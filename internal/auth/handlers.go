@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/ory/fosite"
-	"github.com/ory/fosite/handler/openid"
+	fositeOAuth2 "github.com/ory/fosite/handler/oauth2"
+	"github.com/ory/fosite/token/jwt"
 )
 
 type OAuthHandlers struct {
@@ -150,7 +151,14 @@ func (h *OAuthHandlers) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session := &openid.DefaultSession{}
+	session := &fositeOAuth2.JWTSession{
+		JWTClaims: &jwt.JWTClaims{
+			Issuer:    h.baseURL,
+			IssuedAt:  time.Now(),
+			ExpiresAt: time.Now().Add(time.Hour),
+		},
+		JWTHeader: &jwt.Headers{},
+	}
 	response, err := h.provider.NewAuthorizeResponse(ctx, p.fositeReq, session)
 	if err != nil {
 		h.provider.WriteAuthorizeError(ctx, w, p.fositeReq, err)
@@ -162,7 +170,7 @@ func (h *OAuthHandlers) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 func (h *OAuthHandlers) handleToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	session := &openid.DefaultSession{}
+	session := &fositeOAuth2.JWTSession{}
 
 	ar, err := h.provider.NewAccessRequest(ctx, r, session)
 	if err != nil {

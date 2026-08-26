@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ory/fosite"
+	fositeOAuth2 "github.com/ory/fosite/handler/oauth2"
 )
 
 func RequireBearerToken(provider fosite.OAuth2Provider, next http.Handler) http.Handler {
@@ -18,7 +19,7 @@ func RequireBearerToken(provider fosite.OAuth2Provider, next http.Handler) http.
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		ctx := r.Context()
 
-		_, _, err := provider.IntrospectToken(ctx, token, fosite.AccessToken, new(fosite.DefaultSession))
+		_, _, err := provider.IntrospectToken(ctx, token, fosite.AccessToken, new(fositeOAuth2.JWTSession))
 		if err != nil {
 			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 			return
