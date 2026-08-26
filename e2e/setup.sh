@@ -67,6 +67,13 @@ HARBOR_ROBOT_NAME=${ROBOT_NAME}
 HARBOR_ROBOT_SECRET=${ROBOT_SECRET}
 EOF
 
+echo "==> Pushing test image to Harbor..."
+docker pull busybox:1.37
+docker tag busybox:1.37 localhost:8880/library/test-image:v1
+echo "${ADMIN_PASS}" | docker login localhost:8880 -u "${ADMIN_USER}" --password-stdin
+docker push localhost:8880/library/test-image:v1
+echo "    Test image pushed: library/test-image:v1"
+
 echo "==> Restarting harbor-mcp with robot credentials..."
 docker compose up -d harbor-mcp
 

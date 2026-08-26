@@ -9,6 +9,13 @@ import (
 	"github.com/rophy/harbor-mcp/internal/auth"
 )
 
+func TestSQLiteStore_InvalidPath(t *testing.T) {
+	_, err := auth.NewSQLiteStore("/dev/null/impossible/path.db")
+	if err == nil {
+		t.Fatal("expected error for invalid path")
+	}
+}
+
 func TestSQLiteStore_PersistsClients(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 

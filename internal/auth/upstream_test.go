@@ -55,6 +55,57 @@ func TestUpstreamOIDC_AuthorizationURL(t *testing.T) {
 	}
 }
 
+func TestNewUpstreamOIDC_DiscoveryInvalidJSON(t *testing.T) {
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("not json"))
+	}))
+	defer idp.Close()
+
+	_, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestNewUpstreamOIDC_MissingEndpoints(t *testing.T) {
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"authorization_endpoint": "https://idp.example.com/authorize",
+		})
+	}))
+	defer idp.Close()
+
+	_, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
+	if err == nil {
+		t.Fatal("expected error for missing token_endpoint")
+	}
+}
+
+func TestNewUpstreamOIDC_Unreachable(t *testing.T) {
+	_, err := auth.NewUpstreamOIDC("http://127.0.0.1:1", "client-id", "client-secret", "")
+	if err == nil {
+		t.Fatal("expected error for unreachable issuer")
+	}
+}
+
+func TestNewUpstreamOIDC_ExternalURL(t *testing.T) {
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"authorization_endpoint": "https://idp.example.com/authorize",
+			"token_endpoint":         "https://idp.example.com/token",
+		})
+	}))
+	defer idp.Close()
+
+	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "https://external.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if upstream.AuthorizationEndpoint != "https://external.example.com/authorize" {
+		t.Errorf("AuthorizationEndpoint = %q, want external URL override", upstream.AuthorizationEndpoint)
+	}
+}
+
 func TestUpstreamOIDC_ExchangeCode(t *testing.T) {
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -79,5 +130,54 @@ func TestUpstreamOIDC_ExchangeCode(t *testing.T) {
 	}
 	if tokens.AccessToken != "upstream-access-token" {
 		t.Errorf("AccessToken = %q", tokens.AccessToken)
+	}
+}
+
+func TestUpstreamOIDC_ExchangeCode_ServerError(t *testing.T) {
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer idp.Close()
+
+	upstream := &auth.UpstreamOIDC{
+		TokenEndpoint: idp.URL + "/token",
+		ClientID:      "harbor-mcp",
+		ClientSecret:  "secret",
+	}
+
+	_, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
+func TestUpstreamOIDC_ExchangeCode_InvalidJSON(t *testing.T) {
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("not json"))
+	}))
+	defer idp.Close()
+
+	upstream := &auth.UpstreamOIDC{
+		TokenEndpoint: idp.URL + "/token",
+		ClientID:      "harbor-mcp",
+		ClientSecret:  "secret",
+	}
+
+	_, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+}
+
+func TestUpstreamOIDC_ExchangeCode_Unreachable(t *testing.T) {
+	upstream := &auth.UpstreamOIDC{
+		TokenEndpoint: "http://127.0.0.1:1/token",
+		ClientID:      "harbor-mcp",
+		ClientSecret:  "secret",
+	}
+
+	_, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
+	if err == nil {
+		t.Fatal("expected error for unreachable token endpoint")
 	}
 }

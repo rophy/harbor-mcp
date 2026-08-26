@@ -15,7 +15,17 @@ import (
 	"github.com/rophy/harbor-mcp/internal/auth"
 )
 
+type testEnv struct {
+	srv *httptest.Server
+	idp *httptest.Server
+}
+
 func setupOAuthServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return setupOAuthServerEnv(t).srv
+}
+
+func setupOAuthServerEnv(t *testing.T) *testEnv {
 	t.Helper()
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -27,10 +37,18 @@ func setupOAuthServer(t *testing.T) *httptest.Server {
 	provider := auth.NewOAuthProvider(store, key)
 
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/openid-configuration" {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
 			json.NewEncoder(w).Encode(map[string]string{
 				"authorization_endpoint": "https://idp.example.com/authorize",
-				"token_endpoint":         "https://idp.example.com/token",
+				"token_endpoint":         "http://" + r.Host + "/token",
+			})
+		case "/token":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{
+				"access_token": "upstream-access-token",
+				"id_token":     "upstream-id-token",
+				"token_type":   "Bearer",
 			})
 		}
 	}))
@@ -47,7 +65,7 @@ func setupOAuthServer(t *testing.T) *httptest.Server {
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv
+	return &testEnv{srv: srv, idp: idp}
 }
 
 func TestMetadataEndpoint(t *testing.T) {
@@ -267,5 +285,303 @@ func TestRequireBearerToken_InvalidToken(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestCallbackEndpoint_UpstreamTokenExchangeFails(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	store := auth.NewMemoryStore()
+	provider := auth.NewOAuthProvider(store, key)
+
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			json.NewEncoder(w).Encode(map[string]string{
+				"authorization_endpoint": "https://idp.example.com/authorize",
+				"token_endpoint":         "http://" + r.Host + "/token",
+			})
+		case "/token":
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(idp.Close)
+
+	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
+	if err != nil {
+		t.Fatalf("upstream setup: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	handlers := auth.NewOAuthHandlers(provider, store, upstream, "http://localhost:8080")
+	handlers.RegisterRoutes(mux)
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	noFollow := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	clientID := registerAndGetClientID(t, srv.URL)
+	codeChallenge := "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+	authorizeURL := fmt.Sprintf("%s/authorize?client_id=%s&response_type=code&redirect_uri=%s&code_challenge=%s&code_challenge_method=S256&state=test-state-value",
+		srv.URL, clientID, url.QueryEscape("http://localhost:9999/callback"), codeChallenge)
+
+	resp, err := noFollow.Get(authorizeURL)
+	if err != nil {
+		t.Fatalf("authorize failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("authorize status = %d, want 302 or 303", resp.StatusCode)
+	}
+
+	location, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse location: %v", err)
+	}
+	upstreamState := location.Query().Get("state")
+	if upstreamState == "" {
+		t.Fatalf("no state in upstream redirect; Location: %s", resp.Header.Get("Location"))
+	}
+
+	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-code", srv.URL, upstreamState)
+	resp, err = noFollow.Get(callbackURL)
+	if err != nil {
+		t.Fatalf("callback failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 502; body: %s", resp.StatusCode, body)
+	}
+}
+
+func completeOAuthFlow(t *testing.T, env *testEnv) (accessToken string) {
+	t.Helper()
+	srv := env.srv
+
+	noFollow := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	clientID := registerAndGetClientID(t, srv.URL)
+	redirectURI := "http://localhost:9999/callback"
+
+	codeVerifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	codeChallenge := "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+	authorizeURL := fmt.Sprintf("%s/authorize?client_id=%s&response_type=code&redirect_uri=%s&code_challenge=%s&code_challenge_method=S256&state=client-state",
+		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
+
+	resp, err := noFollow.Get(authorizeURL)
+	if err != nil {
+		t.Fatalf("authorize request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	location, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse authorize redirect: %v", err)
+	}
+	upstreamState := location.Query().Get("state")
+
+	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-upstream-code", srv.URL, upstreamState)
+	resp, err = noFollow.Get(callbackURL)
+	if err != nil {
+		t.Fatalf("callback request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	callbackRedirect, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse callback redirect: %v", err)
+	}
+	authCode := callbackRedirect.Query().Get("code")
+
+	tokenResp, err := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {clientID},
+		"code_verifier": {codeVerifier},
+	})
+	if err != nil {
+		t.Fatalf("token request failed: %v", err)
+	}
+	defer tokenResp.Body.Close()
+
+	var tokenResult map[string]any
+	json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
+	return tokenResult["access_token"].(string)
+}
+
+func TestCallbackEndpoint_HappyPath(t *testing.T) {
+	env := setupOAuthServerEnv(t)
+	srv := env.srv
+
+	noFollow := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	clientID := registerAndGetClientID(t, srv.URL)
+	redirectURI := "http://localhost:9999/callback"
+
+	codeVerifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	codeChallenge := "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+	authorizeURL := fmt.Sprintf("%s/authorize?client_id=%s&response_type=code&redirect_uri=%s&code_challenge=%s&code_challenge_method=S256&state=client-state",
+		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
+
+	resp, err := noFollow.Get(authorizeURL)
+	if err != nil {
+		t.Fatalf("authorize request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("authorize status = %d, want 302", resp.StatusCode)
+	}
+
+	location, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse authorize redirect: %v", err)
+	}
+	upstreamState := location.Query().Get("state")
+	if upstreamState == "" {
+		t.Fatal("no state in upstream redirect")
+	}
+
+	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-upstream-code", srv.URL, upstreamState)
+	resp, err = noFollow.Get(callbackURL)
+	if err != nil {
+		t.Fatalf("callback request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("callback status = %d, want 302 or 303", resp.StatusCode)
+	}
+
+	callbackRedirect, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse callback redirect: %v", err)
+	}
+	authCode := callbackRedirect.Query().Get("code")
+	if authCode == "" {
+		t.Fatal("no authorization code in callback redirect")
+	}
+	if callbackRedirect.Query().Get("state") != "client-state" {
+		t.Errorf("state = %q, want client-state", callbackRedirect.Query().Get("state"))
+	}
+
+	tokenResp, err := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {clientID},
+		"code_verifier": {codeVerifier},
+	})
+	if err != nil {
+		t.Fatalf("token request failed: %v", err)
+	}
+	defer tokenResp.Body.Close()
+
+	if tokenResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(tokenResp.Body)
+		t.Fatalf("token status = %d, want 200; body: %s", tokenResp.StatusCode, body)
+	}
+
+	var tokenResult map[string]any
+	json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
+
+	if tokenResult["access_token"] == nil || tokenResult["access_token"] == "" {
+		t.Error("expected access_token in response")
+	}
+	if tokenResult["token_type"] != "bearer" {
+		t.Errorf("token_type = %v, want bearer", tokenResult["token_type"])
+	}
+}
+
+func TestRequireBearerToken_NonBearerScheme(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	store := auth.NewMemoryStore()
+	provider := auth.NewOAuthProvider(store, key)
+
+	handler := auth.RequireBearerToken(provider, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestTokenEndpoint_ReplayedCode(t *testing.T) {
+	env := setupOAuthServerEnv(t)
+	srv := env.srv
+
+	noFollow := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	clientID := registerAndGetClientID(t, srv.URL)
+	redirectURI := "http://localhost:9999/callback"
+	codeVerifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	codeChallenge := "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+	authorizeURL := fmt.Sprintf("%s/authorize?client_id=%s&response_type=code&redirect_uri=%s&code_challenge=%s&code_challenge_method=S256&state=client-state",
+		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
+
+	resp, err := noFollow.Get(authorizeURL)
+	if err != nil {
+		t.Fatalf("authorize failed: %v", err)
+	}
+	resp.Body.Close()
+	location, _ := url.Parse(resp.Header.Get("Location"))
+
+	callbackResp, err := noFollow.Get(fmt.Sprintf("%s/auth/callback?state=%s&code=mock-code", srv.URL, location.Query().Get("state")))
+	if err != nil {
+		t.Fatalf("callback failed: %v", err)
+	}
+	callbackResp.Body.Close()
+	callbackRedirect, _ := url.Parse(callbackResp.Header.Get("Location"))
+	authCode := callbackRedirect.Query().Get("code")
+
+	// First exchange succeeds
+	resp1, _ := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {clientID},
+		"code_verifier": {codeVerifier},
+	})
+	resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("first token exchange status = %d, want 200", resp1.StatusCode)
+	}
+
+	// Second exchange with same code should fail
+	resp2, _ := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {clientID},
+		"code_verifier": {codeVerifier},
+	})
+	resp2.Body.Close()
+	if resp2.StatusCode == http.StatusOK {
+		t.Fatal("expected error for replayed authorization code")
 	}
 }

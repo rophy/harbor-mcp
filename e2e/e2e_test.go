@@ -278,6 +278,251 @@ func TestFullOAuthFlowAndMCPAccess(t *testing.T) {
 	}
 }
 
+// mcpSession holds the state needed to make MCP tool calls.
+type mcpSession struct {
+	accessToken string
+	sessionID   string
+	nextID      int
+}
+
+// initMCPSession performs the full OAuth flow and initializes an MCP session.
+func initMCPSession(t *testing.T) *mcpSession {
+	t.Helper()
+	accessToken := fullOAuthFlow(t)
+
+	jsonRPC := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e-test","version":"1.0"}}}`
+	req, _ := http.NewRequest("POST", mcpServerURL+"/mcp", strings.NewReader(jsonRPC))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("MCP initialize failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("MCP initialize: status %d; body: %s", resp.StatusCode, body)
+	}
+
+	sessionID := resp.Header.Get("Mcp-Session-Id")
+	return &mcpSession{accessToken: accessToken, sessionID: sessionID, nextID: 2}
+}
+
+// callTool sends a tools/call JSON-RPC request and returns the parsed response.
+func (s *mcpSession) callTool(t *testing.T, toolName string, args map[string]any) map[string]any {
+	t.Helper()
+	id := s.nextID
+	s.nextID++
+
+	params := map[string]any{
+		"name":      toolName,
+		"arguments": args,
+	}
+	rpcReq := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "tools/call",
+		"params":  params,
+	}
+	body, _ := json.Marshal(rpcReq)
+
+	req, _ := http.NewRequest("POST", mcpServerURL+"/mcp", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+s.accessToken)
+	if s.sessionID != "" {
+		req.Header.Set("Mcp-Session-Id", s.sessionID)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("MCP tools/call %s failed: %v", toolName, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("MCP tools/call %s: status %d; body: %s", toolName, resp.StatusCode, respBody)
+	}
+
+	// The response may be SSE (text/event-stream) or plain JSON.
+	// For SSE, extract the JSON from the "data:" line.
+	jsonData := respBody
+	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		for _, line := range strings.Split(string(respBody), "\n") {
+			if strings.HasPrefix(line, "data: ") {
+				jsonData = []byte(strings.TrimPrefix(line, "data: "))
+				break
+			}
+		}
+	}
+
+	var rpcResp map[string]any
+	if err := json.Unmarshal(jsonData, &rpcResp); err != nil {
+		t.Fatalf("MCP tools/call %s: decode response: %v; body: %s", toolName, err, respBody)
+	}
+
+	if rpcErr, ok := rpcResp["error"]; ok {
+		t.Fatalf("MCP tools/call %s returned error: %v", toolName, rpcErr)
+	}
+
+	result, ok := rpcResp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP tools/call %s: unexpected result type: %T", toolName, rpcResp["result"])
+	}
+	return result
+}
+
+// getTextContent extracts the text from the first content item in a tool result.
+func getTextContent(t *testing.T, result map[string]any) string {
+	t.Helper()
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatal("no content in tool result")
+	}
+	first, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatal("unexpected content format")
+	}
+	text, ok := first["text"].(string)
+	if !ok {
+		t.Fatal("no text in content")
+	}
+	return text
+}
+
+func TestMCPTool_ListProjects(t *testing.T) {
+	s := initMCPSession(t)
+	result := s.callTool(t, "list_projects", map[string]any{})
+	text := getTextContent(t, result)
+
+	var projects []map[string]any
+	if err := json.Unmarshal([]byte(text), &projects); err != nil {
+		t.Fatalf("failed to parse list_projects response: %v", err)
+	}
+	if len(projects) == 0 {
+		t.Fatal("list_projects returned 0 projects")
+	}
+	found := false
+	for _, p := range projects {
+		if p["name"] == "library" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("list_projects should include 'library' project, got: %s", text)
+	}
+}
+
+func TestMCPTool_GetProject(t *testing.T) {
+	s := initMCPSession(t)
+	result := s.callTool(t, "get_project", map[string]any{"project_name": "library"})
+	text := getTextContent(t, result)
+
+	var project map[string]any
+	if err := json.Unmarshal([]byte(text), &project); err != nil {
+		t.Fatalf("failed to parse get_project response: %v", err)
+	}
+	if project["name"] != "library" {
+		t.Errorf("get_project name = %v, want library", project["name"])
+	}
+	if project["project_id"] == nil || project["project_id"].(float64) == 0 {
+		t.Error("get_project should have a non-zero project_id")
+	}
+}
+
+func TestMCPTool_ListRepositories(t *testing.T) {
+	s := initMCPSession(t)
+	result := s.callTool(t, "list_repositories", map[string]any{"project_name": "library"})
+	text := getTextContent(t, result)
+
+	var repos []map[string]any
+	if err := json.Unmarshal([]byte(text), &repos); err != nil {
+		t.Fatalf("failed to parse list_repositories response: %v", err)
+	}
+	if len(repos) == 0 {
+		t.Fatal("list_repositories returned 0 repositories")
+	}
+	found := false
+	for _, r := range repos {
+		name, _ := r["name"].(string)
+		if strings.Contains(name, "test") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("list_repositories should include a test repo, got: %s", text)
+	}
+}
+
+func TestMCPTool_ListArtifacts(t *testing.T) {
+	s := initMCPSession(t)
+	result := s.callTool(t, "list_artifacts", map[string]any{
+		"project_name":    "library",
+		"repository_name": "test",
+	})
+	text := getTextContent(t, result)
+
+	var artifacts []map[string]any
+	if err := json.Unmarshal([]byte(text), &artifacts); err != nil {
+		t.Fatalf("failed to parse list_artifacts response: %v", err)
+	}
+	if len(artifacts) == 0 {
+		t.Fatal("list_artifacts returned 0 artifacts")
+	}
+	digest, _ := artifacts[0]["digest"].(string)
+	if !strings.HasPrefix(digest, "sha256:") {
+		t.Errorf("artifact digest = %q, want sha256:... prefix", digest)
+	}
+}
+
+func TestMCPTool_GetArtifact(t *testing.T) {
+	s := initMCPSession(t)
+	result := s.callTool(t, "get_artifact", map[string]any{
+		"project_name":    "library",
+		"repository_name": "test",
+		"reference":       "v1",
+	})
+	text := getTextContent(t, result)
+
+	var artifact map[string]any
+	if err := json.Unmarshal([]byte(text), &artifact); err != nil {
+		t.Fatalf("failed to parse get_artifact response: %v", err)
+	}
+	digest, _ := artifact["digest"].(string)
+	if !strings.HasPrefix(digest, "sha256:") {
+		t.Errorf("artifact digest = %q, want sha256:... prefix", digest)
+	}
+	tags, _ := artifact["tags"].([]any)
+	if len(tags) == 0 {
+		t.Fatal("get_artifact should have at least one tag")
+	}
+	tag0, _ := tags[0].(map[string]any)
+	if tag0["name"] != "v1" {
+		t.Errorf("first tag = %v, want v1", tag0["name"])
+	}
+}
+
+func TestMCPTool_GetVulnerabilities(t *testing.T) {
+	s := initMCPSession(t)
+	result := s.callTool(t, "get_vulnerabilities", map[string]any{
+		"project_name":    "library",
+		"repository_name": "test",
+		"reference":       "v1",
+	})
+
+	// Trivy is not enabled in e2e, so the tool returns an error.
+	// Verify the result indicates an error (isError or error text).
+	isError, _ := result["isError"].(bool)
+	text := getTextContent(t, result)
+	if !isError && !strings.Contains(text, "404") {
+		t.Errorf("get_vulnerabilities should return an error (no scanner), got: %s", text)
+	}
+}
+
 func TestHarborIsAccessible(t *testing.T) {
 	resp, err := http.Get(harborURL + "/api/v2.0/ping")
 	if err != nil {
