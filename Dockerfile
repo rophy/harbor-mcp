@@ -9,3 +9,4 @@ FROM gcr.io/distroless/static-debian12
 COPY --from=builder /harbor-mcp /harbor-mcp
 VOLUME /data
 ENTRYPOINT ["/harbor-mcp"]
+CMD ["serve"]

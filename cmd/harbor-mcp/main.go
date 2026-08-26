@@ -20,13 +20,25 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help") {
-		fmt.Print(harbormcp.Readme)
+	if len(os.Args) == 1 {
+		fmt.Println("Usage: harbor-mcp <command>")
+		fmt.Println()
+		fmt.Println("Commands:")
+		fmt.Println("  serve       Start the MCP server (requires HARBOR_URL env var)")
+		fmt.Println("  help        Show full documentation (README)")
+		fmt.Println()
+		fmt.Println("Run 'harbor-mcp help' for detailed setup and configuration instructions.")
 		return
 	}
-	if len(os.Args) == 1 && os.Getenv("HARBOR_URL") == "" {
+	switch os.Args[1] {
+	case "help", "--help", "-h":
 		fmt.Print(harbormcp.Readme)
 		return
+	case "serve":
+		// continue to server startup below
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\nRun 'harbor-mcp' for usage.\n", os.Args[1])
+		os.Exit(1)
 	}
 	cfg, err := config.Load()
 	if err != nil {
