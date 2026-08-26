@@ -17,37 +17,40 @@ import (
 	"github.com/rophy/harbor-mcp/internal/config"
 	"github.com/rophy/harbor-mcp/internal/harbor"
 	"github.com/rophy/harbor-mcp/internal/server"
+	"github.com/spf13/cobra"
 )
 
+var rootCmd = &cobra.Command{
+	Use:   "harbor-mcp",
+	Short: "MCP server for Harbor container registry",
+	Long:  harbormcp.Readme,
+}
+
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start the MCP server",
+	RunE:  runServe,
+}
+
+func init() {
+	rootCmd.AddCommand(serveCmd)
+}
+
 func main() {
-	if len(os.Args) == 1 {
-		fmt.Println("Usage: harbor-mcp <command>")
-		fmt.Println()
-		fmt.Println("Commands:")
-		fmt.Println("  serve       Start the MCP server (requires HARBOR_URL env var)")
-		fmt.Println("  help        Show full documentation (README)")
-		fmt.Println()
-		fmt.Println("Run 'harbor-mcp help' for detailed setup and configuration instructions.")
-		return
-	}
-	switch os.Args[1] {
-	case "help", "--help", "-h":
-		fmt.Print(harbormcp.Readme)
-		return
-	case "serve":
-		// continue to server startup below
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nRun 'harbor-mcp' for usage.\n", os.Args[1])
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		return fmt.Errorf("failed to load config: %v", err)
 	}
 
 	signingKey, err := loadOrGenerateKey(cfg.OAuthSigningKey)
 	if err != nil {
-		log.Fatalf("failed to load signing key: %v", err)
+		return fmt.Errorf("failed to load signing key: %v", err)
 	}
 
 	upstream, err := auth.NewUpstreamOIDC(
@@ -57,13 +60,13 @@ func main() {
 		cfg.OAuthUpstreamExternalURL,
 	)
 	if err != nil {
-		log.Fatalf("failed to discover upstream OIDC: %v", err)
+		return fmt.Errorf("failed to discover upstream OIDC: %v", err)
 	}
 
 	dbPath := filepath.Join(cfg.DataDir, "harbor-mcp.db")
 	store, err := auth.NewSQLiteStore(dbPath)
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		return fmt.Errorf("failed to open database: %v", err)
 	}
 	defer store.Close()
 	provider := auth.NewOAuthProvider(store, signingKey)
@@ -83,9 +86,7 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
 	log.Printf("harbor-mcp listening on %s", addr)
-	if err := http.ListenAndServe(addr, httpMux); err != nil {
-		log.Fatalf("server error: %v", err)
-	}
+	return http.ListenAndServe(addr, httpMux)
 }
 
 func loadOrGenerateKey(pemData string) (*rsa.PrivateKey, error) {
