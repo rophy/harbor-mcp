@@ -4,10 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ory/fosite"
 	"github.com/ory/fosite/handler/openid"
@@ -25,7 +26,10 @@ type OAuthHandlers struct {
 type pendingAuth struct {
 	fositeReq     fosite.AuthorizeRequester
 	upstreamState string
+	createdAt     time.Time
 }
+
+const pendingAuthTTL = 10 * time.Minute
 
 func NewOAuthHandlers(provider fosite.OAuth2Provider, store *MemoryStore, upstream *UpstreamOIDC, baseURL string) *OAuthHandlers {
 	return &OAuthHandlers{
@@ -62,6 +66,7 @@ func (h *OAuthHandlers) handleMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OAuthHandlers) handleRegister(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req struct {
 		RedirectURIs []string `json:"redirect_uris"`
 		ClientName   string   `json:"client_name"`
@@ -102,9 +107,11 @@ func (h *OAuthHandlers) handleAuthorize(w http.ResponseWriter, r *http.Request) 
 
 	state := generateID()
 	h.mu.Lock()
+	h.cleanExpiredPendingLocked()
 	h.pending[state] = &pendingAuth{
 		fositeReq:     ar,
 		upstreamState: state,
+		createdAt:     time.Now(),
 	}
 	h.mu.Unlock()
 
@@ -138,7 +145,8 @@ func (h *OAuthHandlers) handleCallback(w http.ResponseWriter, r *http.Request) {
 	callbackURL := h.baseURL + "/auth/callback"
 	_, err := h.upstream.ExchangeCode(ctx, code, callbackURL)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("upstream token exchange failed: %v", err), http.StatusBadGateway)
+		log.Printf("upstream token exchange failed: %v", err)
+		http.Error(w, "upstream authentication failed", http.StatusBadGateway)
 		return
 	}
 
@@ -173,8 +181,19 @@ func (h *OAuthHandlers) handleToken(w http.ResponseWriter, r *http.Request) {
 	h.provider.WriteAccessResponse(ctx, w, ar, response)
 }
 
+func (h *OAuthHandlers) cleanExpiredPendingLocked() {
+	now := time.Now()
+	for k, v := range h.pending {
+		if now.Sub(v.createdAt) > pendingAuthTTL {
+			delete(h.pending, k)
+		}
+	}
+}
+
 func generateID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }

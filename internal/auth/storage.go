@@ -8,10 +8,15 @@ import (
 	"github.com/ory/fosite"
 )
 
+type authCodeEntry struct {
+	req         fosite.Requester
+	invalidated bool
+}
+
 type MemoryStore struct {
 	mu            sync.RWMutex
 	clients       map[string]fosite.Client
-	authCodes     map[string]fosite.Requester
+	authCodes     map[string]*authCodeEntry
 	accessTokens  map[string]fosite.Requester
 	refreshTokens map[string]fosite.Requester
 	pkces         map[string]fosite.Requester
@@ -20,7 +25,7 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		clients:       make(map[string]fosite.Client),
-		authCodes:     make(map[string]fosite.Requester),
+		authCodes:     make(map[string]*authCodeEntry),
 		accessTokens:  make(map[string]fosite.Requester),
 		refreshTokens: make(map[string]fosite.Requester),
 		pkces:         make(map[string]fosite.Requester),
@@ -61,24 +66,31 @@ func (s *MemoryStore) SetClientAssertionJWT(_ context.Context, _ string, _ time.
 func (s *MemoryStore) CreateAuthorizeCodeSession(_ context.Context, code string, req fosite.Requester) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.authCodes[code] = req
+	s.authCodes[code] = &authCodeEntry{req: req}
 	return nil
 }
 
 func (s *MemoryStore) GetAuthorizeCodeSession(_ context.Context, code string, _ fosite.Session) (fosite.Requester, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	req, ok := s.authCodes[code]
+	entry, ok := s.authCodes[code]
 	if !ok {
 		return nil, fosite.ErrNotFound
 	}
-	return req, nil
+	if entry.invalidated {
+		return entry.req, fosite.ErrInvalidatedAuthorizeCode
+	}
+	return entry.req, nil
 }
 
 func (s *MemoryStore) InvalidateAuthorizeCodeSession(_ context.Context, code string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.authCodes, code)
+	entry, ok := s.authCodes[code]
+	if !ok {
+		return fosite.ErrNotFound
+	}
+	entry.invalidated = true
 	return nil
 }
 
