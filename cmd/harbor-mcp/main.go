@@ -24,6 +24,10 @@ func main() {
 		fmt.Print(harbormcp.Readme)
 		return
 	}
+	if len(os.Args) == 1 && os.Getenv("HARBOR_URL") == "" {
+		fmt.Print(harbormcp.Readme)
+		return
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
