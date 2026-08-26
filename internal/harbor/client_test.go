@@ -99,6 +99,66 @@ func TestListArtifacts(t *testing.T) {
 	}
 }
 
+func TestGetArtifact(t *testing.T) {
+	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2.0/projects/library/repositories/nginx/artifacts/latest" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(harbor.Artifact{Digest: "sha256:abc123", Size: 12345})
+	})
+
+	artifact, err := client.GetArtifact(context.Background(), "library", "nginx", "latest")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if artifact.Digest != "sha256:abc123" {
+		t.Errorf("Digest = %q, want sha256:abc123", artifact.Digest)
+	}
+}
+
+func TestGetVulnerabilities(t *testing.T) {
+	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2.0/projects/library/repositories/nginx/artifacts/latest/additions/vulnerabilities" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(harbor.VulnerabilityReport{
+			Severity: "High",
+			Summary:  map[string]int{"High": 1},
+		})
+	})
+
+	report, err := client.GetVulnerabilities(context.Background(), "library", "nginx", "latest")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.Severity != "High" {
+		t.Errorf("Severity = %q, want High", report.Severity)
+	}
+}
+
+func TestListProjectsWithPagination(t *testing.T) {
+	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") != "2" {
+			t.Errorf("page = %q, want 2", r.URL.Query().Get("page"))
+		}
+		if r.URL.Query().Get("page_size") != "5" {
+			t.Errorf("page_size = %q, want 5", r.URL.Query().Get("page_size"))
+		}
+		if r.URL.Query().Get("name") != "test" {
+			t.Errorf("name = %q, want test", r.URL.Query().Get("name"))
+		}
+		json.NewEncoder(w).Encode([]harbor.Project{})
+	})
+
+	_, err := client.ListProjects(context.Background(), harbor.ListProjectsOpts{
+		ListOpts: harbor.ListOpts{Page: 2, PageSize: 5},
+		Name:     "test",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestAPIError(t *testing.T) {
 	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

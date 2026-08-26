@@ -104,6 +104,105 @@ func TestListProjectsTool(t *testing.T) {
 	}
 }
 
+func TestGetProjectTool(t *testing.T) {
+	mock := &mockHarborClient{}
+	srv := server.NewMCPServer(mock)
+
+	ctx := context.Background()
+	session, err := connect(ctx, srv)
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_project",
+		Arguments: map[string]any{"project_name": "library"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected content in result")
+	}
+}
+
+func TestListRepositoriesTool(t *testing.T) {
+	mock := &mockHarborClient{}
+	srv := server.NewMCPServer(mock)
+
+	ctx := context.Background()
+	session, err := connect(ctx, srv)
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_repositories",
+		Arguments: map[string]any{"project_name": "library"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected content in result")
+	}
+}
+
+func TestListArtifactsTool(t *testing.T) {
+	mock := &mockHarborClient{}
+	srv := server.NewMCPServer(mock)
+
+	ctx := context.Background()
+	session, err := connect(ctx, srv)
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_artifacts",
+		Arguments: map[string]any{
+			"project_name":    "library",
+			"repository_name": "nginx",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected content in result")
+	}
+}
+
+func TestGetArtifactTool(t *testing.T) {
+	mock := &mockHarborClient{}
+	srv := server.NewMCPServer(mock)
+
+	ctx := context.Background()
+	session, err := connect(ctx, srv)
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_artifact",
+		Arguments: map[string]any{
+			"project_name":    "library",
+			"repository_name": "nginx",
+			"reference":       "latest",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected content in result")
+	}
+}
+
 func TestGetVulnerabilitiesTool(t *testing.T) {
 	mock := &mockHarborClient{}
 	srv := server.NewMCPServer(mock)
