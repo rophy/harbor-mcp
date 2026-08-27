@@ -2,20 +2,27 @@
 
 # LLM doc-completeness test for harbor-mcp.
 #
-# An AI agent is given only the harbor-mcp help output and must figure
-# out how to interact with an already-running harbor-mcp instance.
+# An AI agent is given only the harbor-mcp binary and dependency
+# endpoints (Harbor, OIDC). It must read the help output to figure
+# out how to configure, deploy, and use harbor-mcp.
 # The test independently verifies the results — it never trusts the
 # AI's self-report.
 #
 # Requires:
 #   - E2E environment running (cd e2e && ./setup.sh)
+#     (provides Harbor at :8880 and OIDC mock at :28090)
 #   - claude CLI with API key
+#   - harbor-mcp binary built
 #   - curl, jq
 #
 # Run: bats test/llm/doc-completeness.bats
 
-MCP_URL="${MCP_URL:-http://localhost:28080}"
-OIDC_MOCK_URL="${OIDC_MOCK_URL:-http://localhost:28090}"
+HARBOR_URL="${HARBOR_URL:-http://localhost:8880}"
+HARBOR_ADMIN_USER="${HARBOR_ADMIN_USER:-admin}"
+HARBOR_ADMIN_PASS="${HARBOR_ADMIN_PASS:-Harbor12345}"
+OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-http://localhost:28090}"
+OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-harbor-mcp}"
+OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-test-secret}"
 
 setup_file() {
   export LOG_DIR="${BATS_TEST_DIRNAME}/logs"
@@ -30,108 +37,109 @@ setup_file() {
   command -v claude >/dev/null 2>&1 || skip "claude CLI not found"
   command -v jq >/dev/null 2>&1 || skip "jq not found"
 
-  # Verify e2e environment is running
-  curl -sf "${MCP_URL}/.well-known/oauth-authorization-server" > /dev/null 2>&1 \
-    || skip "harbor-mcp not running at ${MCP_URL} — run 'cd e2e && ./setup.sh' first"
+  # Verify dependencies are running
+  curl -sf "${HARBOR_URL}/api/v2.0/ping" > /dev/null 2>&1 \
+    || skip "Harbor not running at ${HARBOR_URL}"
+  curl -sf "${OIDC_ISSUER_URL}/.well-known/openid-configuration" > /dev/null 2>&1 \
+    || skip "OIDC provider not running at ${OIDC_ISSUER_URL}"
 
-  # Build the binary to get help output
-  export HELP_OUTPUT
-  HELP_OUTPUT=$(go run ./cmd/harbor-mcp/ help 2>&1)
+  # Build the binary
+  export BINARY="${BATS_TEST_DIRNAME}/../../harbor-mcp"
+  go build -o "${BINARY}" ./cmd/harbor-mcp/
 }
 
-@test "AI uses harbor-mcp tools from help output alone" {
+teardown_file() {
+  # Kill any harbor-mcp process the AI may have started
+  pkill -f "harbor-mcp serve" 2>/dev/null || true
+}
+
+@test "AI deploys harbor-mcp from help output alone" {
   local PROMPT
   PROMPT="$(cat <<PROMPT_EOF
-You have access to a running harbor-mcp server.
+You have a binary at: ${BINARY}
 
-Here is the complete output of 'harbor-mcp help':
----
-${HELP_OUTPUT}
----
+Run it to discover what it does and how to configure it.
 
-The server is running at: ${MCP_URL}
-The OIDC provider at ${OIDC_MOCK_URL} auto-approves all auth requests.
+You have the following infrastructure already running:
+
+  Harbor registry:
+    URL: ${HARBOR_URL}
+    Admin credentials: ${HARBOR_ADMIN_USER} / ${HARBOR_ADMIN_PASS}
+
+  OIDC provider:
+    Issuer URL: ${OIDC_ISSUER_URL}
+    Client ID: ${OIDC_CLIENT_ID}
+    Client secret: ${OIDC_CLIENT_SECRET}
+    (auto-approves all auth requests, no login page)
 
 Your task:
-Using ONLY the documentation above, figure out how to call the MCP tools
-exposed by this server. You must complete the OAuth flow to get an access
-token, then call MCP tools via the /mcp endpoint.
-
-Specifically:
-1. Register a dynamic OAuth client
-2. Complete the OAuth authorization flow to get an access token
-3. Call the 'list_projects' tool and save the result
-4. Call the 'get_project' tool for the 'library' project and save the result
-5. Call the 'list_repositories' tool for the 'library' project and save the result
-
-Important details about the OIDC mock:
-- Its authorize endpoint auto-redirects with a code (no login page)
-- Follow redirects manually with curl -v to capture the auth code from Location headers
-
-Write your results as JSON to ${RESULT_FILE} in this format:
-{
-  "list_projects": <raw tool result>,
-  "get_project": <raw tool result>,
-  "list_repositories": <raw tool result>
-}
+1. Run the binary to read its documentation
+2. Create a Harbor robot account for harbor-mcp (following the docs)
+3. Configure and start harbor-mcp on port 18080 (background process)
+4. Verify it is running by checking its OAuth discovery endpoint
+5. Connect to harbor-mcp as an MCP client:
+   a. Register a dynamic OAuth client
+   b. Complete the OAuth flow to get an access token
+   c. Call the 'list_projects' tool
+   d. Call the 'list_repositories' tool for the 'library' project
+6. Write results to ${RESULT_FILE} as JSON:
+   {
+     "list_projects": <raw tool result>,
+     "list_repositories": <raw tool result>
+   }
 
 Rules:
-- Use ONLY the help output above for figuring out the OAuth flow and MCP protocol
-- Do NOT read any source code files in this repository
-- Do NOT read docker-compose.yml or any e2e test files
-- If you encounter documentation gaps, note them in ${GAPS_FILE}
-- Use curl for HTTP requests
+- Figure out EVERYTHING from the binary's help output
+- Do NOT read any source code, test files, or docker-compose files
+- Do NOT read any files in this repository except the binary itself
+- If documentation is unclear or missing information, note gaps in ${GAPS_FILE}
+- The OIDC provider's authorize endpoint auto-redirects (no login page)
+  so follow redirects manually with curl to capture auth codes
+- Use SERVER_BASE_URL=http://localhost:18080 when configuring harbor-mcp
 PROMPT_EOF
 )"
 
   claude -p "$PROMPT" \
     --dangerously-skip-permissions \
-    --max-budget-usd 3 \
+    --max-budget-usd 5 \
     --allowedTools "Bash Read Write" \
     2>&1 | tee "${CLAUDE_LOG}"
 }
 
 # --- Independent verification ---
-# These tests verify the AI produced correct results.
-# They don't rely on anything the AI claimed.
+# These tests verify actual state, not the AI's claims.
+
+@test "harbor-mcp is running on port 18080" {
+  run curl -sf http://localhost:18080/.well-known/oauth-authorization-server
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.authorization_endpoint' > /dev/null
+}
 
 @test "result file exists and is valid JSON" {
   [ -f "${RESULT_FILE}" ]
-  jq empty "${RESULT_FILE}"
+  run jq empty "${RESULT_FILE}"
+  [ "$status" -eq 0 ]
 }
 
 @test "list_projects returned the library project" {
-  local result
-  result=$(jq -r '.list_projects' "${RESULT_FILE}")
-  [ "$result" != "null" ]
-
-  echo "$result" | jq -e '.[] | select(.name == "library")' > /dev/null 2>&1 \
-    || echo "$result" | grep -q "library"
-}
-
-@test "get_project returned project details" {
-  local result
-  result=$(jq -r '.get_project' "${RESULT_FILE}")
-  [ "$result" != "null" ]
-
-  echo "$result" | jq -e '.name == "library" or .project_id' > /dev/null 2>&1 \
-    || echo "$result" | grep -q "library"
+  run jq -r '.list_projects' "${RESULT_FILE}"
+  [ "$status" -eq 0 ]
+  [ "$output" != "null" ]
+  echo "$output" | grep -q "library"
 }
 
 @test "list_repositories found test-image" {
-  local result
-  result=$(jq -r '.list_repositories' "${RESULT_FILE}")
-  [ "$result" != "null" ]
-
-  echo "$result" | jq -e '.[] | select(.name | contains("test"))' > /dev/null 2>&1 \
-    || echo "$result" | grep -q "test"
+  run jq -r '.list_repositories' "${RESULT_FILE}"
+  [ "$status" -eq 0 ]
+  [ "$output" != "null" ]
+  echo "$output" | grep -q "test"
 }
 
-@test "documentation gaps file" {
+@test "documentation gaps report" {
   if [ -f "${GAPS_FILE}" ] && [ -s "${GAPS_FILE}" ]; then
-    echo "Documentation gaps found:"
+    echo "=== Documentation gaps found ==="
     cat "${GAPS_FILE}"
-    # Don't fail — gaps are informational, not a test failure
+    echo "================================"
   else
     echo "No documentation gaps reported"
   fi
