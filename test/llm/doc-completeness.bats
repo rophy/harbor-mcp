@@ -213,7 +213,10 @@ Rules:
 - Figure out harbor-mcp configuration from the container's help output ONLY
 - Do NOT read any source code, test files, or docker-compose files
 - Do NOT read any files in this repository
-- If documentation is unclear or missing information, note gaps in ${GAPS_FILE}
+- You MUST write ${GAPS_FILE} when done. List every place where the
+  documentation was unclear, incomplete, or where you had to guess.
+  If the documentation was perfectly clear, write "No gaps found." to
+  the file. The file must exist when you finish.
 PROMPT_EOF
 )"
 
@@ -260,12 +263,19 @@ PROMPT_EOF
   echo "$output" | grep -q "connected"
 }
 
+@test "gaps file was written" {
+  [ -f "${GAPS_FILE}" ]
+}
+
 @test "documentation gaps report" {
   if [ -f "${GAPS_FILE}" ] && [ -s "${GAPS_FILE}" ]; then
-    echo "=== Documentation gaps found ==="
+    echo "=== Gaps file contents ==="
     cat "${GAPS_FILE}"
-    echo "================================"
-  else
-    echo "No documentation gaps reported"
+    echo "========================="
+    # Fail if there are real gaps (not just "no gaps found")
+    if ! grep -qi "no gaps" "${GAPS_FILE}"; then
+      echo "Documentation gaps found — review and fix README"
+      return 1
+    fi
   fi
 }
