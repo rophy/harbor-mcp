@@ -44,6 +44,10 @@ volumes:
   harbor-mcp-data:
 ```
 
+The `/data` volume stores the SQLite database containing registered OAuth clients and authorization state. Without a persistent volume, all client registrations and tokens are lost on container restart — MCP clients will need to re-register and re-authenticate.
+
+**Docker networking:** harbor-mcp must be able to reach both the Harbor API (`HARBOR_URL`) and the OIDC provider's endpoints. If Harbor and the OIDC provider run as Docker containers, put harbor-mcp on the same Docker network so it can resolve their internal hostnames. When using `--network host`, set URLs to `http://localhost:<port>` instead.
+
 ### Connect an MCP Client
 
 The MCP endpoint is at `/mcp` using Streamable HTTP transport with OAuth 2.1 authentication.
@@ -65,7 +69,7 @@ opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `HARBOR_URL` | yes | Harbor API base URL |
-| `HARBOR_ROBOT_NAME` | yes | Robot account username |
+| `HARBOR_ROBOT_NAME` | yes | Robot account username (e.g. `robot$mcp-reader` — see below) |
 | `HARBOR_ROBOT_SECRET` | yes | Robot account secret |
 | `OAUTH_UPSTREAM_ISSUER` | yes | OIDC issuer URL (must serve `/.well-known/openid-configuration`) |
 | `OAUTH_UPSTREAM_CLIENT_ID` | yes | Client ID registered with the upstream IDP |
@@ -78,7 +82,9 @@ opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
 
 ### OAUTH_UPSTREAM_EXTERNAL_URL
 
-Set this when the OIDC issuer URL is not reachable from the user's browser — typically in Docker/Kubernetes where the issuer advertises an internal hostname (e.g., `http://keycloak:8080`). harbor-mcp uses the issuer URL for server-side token exchange, and rewrites the browser redirect to use the external URL instead.
+Set this when the OIDC issuer URL is not reachable from the user's browser — typically in Docker/Kubernetes where the issuer advertises an internal hostname (e.g., `http://keycloak:8080`). harbor-mcp rewrites browser-facing redirects to use this external URL instead.
+
+**Note:** harbor-mcp performs server-side token exchange and key verification using endpoint URLs from the upstream OIDC discovery document (`/.well-known/openid-configuration`). This variable only rewrites browser redirects — it does not affect server-side calls. harbor-mcp must be able to reach the `token_endpoint` and `jwks_uri` hostnames returned by the discovery document. If those return internal hostnames (e.g. `http://keycloak:8080`), ensure harbor-mcp has network access to them (e.g. same Docker network).
 
 Example: issuer is `http://keycloak:8080` (internal), external URL is `https://keycloak.example.com`.
 
@@ -108,7 +114,16 @@ curl -u admin:Harbor12345 -X POST https://harbor.example.com/api/v2.0/robots \
   }'
 ```
 
-The response contains `{"name": "robot$mcp-reader", "secret": "..."}`. Use the full `robot$mcp-reader` name as `HARBOR_ROBOT_NAME`.
+The response contains `{"name": "robot$mcp-reader", "secret": "..."}`. Use the full name including the `robot$` prefix as `HARBOR_ROBOT_NAME`. Harbor always prefixes robot account names with `robot$` — if you created a robot named `mcp-reader`, the username is `robot$mcp-reader`.
+
+## Headless / CI Authentication
+
+MCP clients normally handle the OAuth flow with a browser. For headless environments (CI/CD, scripts), you can complete the flow manually:
+
+1. **Discover endpoints:** `GET /.well-known/oauth-authorization-server` returns `registration_endpoint`, `authorization_endpoint`, and `token_endpoint`.
+2. **Register a client:** `POST /register` with `{"redirect_uris": ["http://localhost:0/callback"], "client_name": "my-client"}`. Returns `client_id`.
+3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&scope=harbor:read`. This redirects to the upstream OIDC login page. Complete authentication and capture the `code` from the final redirect.
+4. **Exchange code for token:** `POST /token` with `grant_type=authorization_code&code=<code>&redirect_uri=<uri>&client_id=<id>&code_verifier=<verifier>`. Returns an access token.
 
 ## Development
 
