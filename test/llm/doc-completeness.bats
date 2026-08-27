@@ -2,13 +2,14 @@
 
 # LLM doc-completeness test for harbor-mcp.
 #
-# An AI agent is given the harbor-mcp binary and dependency endpoints.
-# It must read the help output to figure out how to configure, deploy,
-# and connect an MCP client (opencode). The test independently verifies
-# the results — it never trusts the AI's self-report.
+# An AI agent is given a container image and dependency endpoints.
+# It must run the image to read the help output, then figure out how
+# to deploy harbor-mcp and connect an MCP client (opencode).
+# The test independently verifies the results — it never trusts the
+# AI's self-report.
 #
 # Requires:
-#   - Docker (for Harbor + OIDC mock)
+#   - Docker (for Harbor + OIDC mock + building the image)
 #   - claude CLI with API key
 #   - opencode CLI
 #   - curl, jq
@@ -22,6 +23,7 @@ OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-http://localhost:28090}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-harbor-mcp}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-test-secret}"
 
+IMAGE_NAME="harbor-mcp:llm-test"
 OPENCODE_CONFIG="${HOME}/.config/opencode/opencode.jsonc"
 OPENCODE_AUTH="${HOME}/.local/share/opencode/mcp-auth.json"
 
@@ -93,7 +95,6 @@ ensure_test_project() {
 }
 
 clean_opencode() {
-  # Remove harbor-mcp from opencode config
   if [ -f "$OPENCODE_CONFIG" ]; then
     local tmp
     tmp=$(jq 'del(.mcp["harbor-mcp"])' "$OPENCODE_CONFIG" 2>/dev/null)
@@ -101,7 +102,6 @@ clean_opencode() {
       echo "$tmp" > "$OPENCODE_CONFIG"
     fi
   fi
-  # Remove harbor-mcp auth tokens
   if [ -f "$OPENCODE_AUTH" ]; then
     local tmp
     tmp=$(jq 'del(.["harbor-mcp"])' "$OPENCODE_AUTH" 2>/dev/null)
@@ -126,7 +126,6 @@ setup_file() {
   command -v docker >/dev/null 2>&1 || skip "docker not found"
 
   # Clean up port 18080 from any previous run
-  pkill -f "harbor-mcp serve" 2>/dev/null || true
   docker ps -q --filter "publish=18080" | xargs -r docker rm -f 2>/dev/null || true
   fuser -k 18080/tcp 2>/dev/null || true
   sleep 1
@@ -144,27 +143,25 @@ setup_file() {
   source "$ENV_FILE"
   export HARBOR_ROBOT_NAME HARBOR_ROBOT_SECRET
 
-  # Build the binary
-  export BINARY="${BATS_TEST_DIRNAME}/../../harbor-mcp"
-  go build -o "${BINARY}" ./cmd/harbor-mcp/
+  # Build the container image
+  local REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  echo "Building container image ${IMAGE_NAME}..." >&3
+  docker build -t "${IMAGE_NAME}" -f "${REPO_ROOT}/Dockerfile" "${REPO_ROOT}" > /dev/null 2>&1
 }
 
 teardown_file() {
-  pkill -f "harbor-mcp serve" 2>/dev/null || true
-  # Stop any Docker container the AI may have started on port 18080
   docker ps -q --filter "publish=18080" | xargs -r docker rm -f 2>/dev/null || true
-  # Kill anything else on port 18080
   fuser -k 18080/tcp 2>/dev/null || true
 }
 
 @test "AI deploys harbor-mcp and connects opencode" {
   local PROMPT
   PROMPT="$(cat <<PROMPT_EOF
-You have a binary at: ${BINARY}
+You have a container image: ${IMAGE_NAME}
 
 Run it to discover what it does and how to configure it.
 
-You have the following infrastructure already running:
+You have the following infrastructure already running on the host:
 
   Harbor registry:
     URL: ${HARBOR_URL}
@@ -183,8 +180,8 @@ You have the following infrastructure already running:
     It returns a 302 redirect with the authorization code.
 
 Your task:
-1. Run the binary to read its documentation
-2. Configure and start harbor-mcp on port 18080 (background process)
+1. Run the container image to read its documentation
+2. Deploy harbor-mcp on port 18080 using Docker
 3. Verify it is running (check the OAuth discovery endpoint)
 4. Add harbor-mcp to opencode using: opencode mcp add
 5. Authenticate opencode with harbor-mcp. Since there is no browser,
@@ -207,12 +204,16 @@ Your task:
 6. Verify opencode can connect: run 'timeout 10 opencode mcp list'
    and confirm harbor-mcp shows as connected
 
-Rules:
-- Figure out harbor-mcp configuration from the binary's help output ONLY
-- Do NOT read any source code, test files, or docker-compose files
-- Do NOT read any files in this repository except the binary output
-- If documentation is unclear or missing information, note gaps in ${GAPS_FILE}
+Important:
+- The container needs --network host to reach Harbor and the OIDC provider
+  on localhost ports, OR use host.docker.internal
 - Use SERVER_BASE_URL=http://localhost:18080 when configuring harbor-mcp
+
+Rules:
+- Figure out harbor-mcp configuration from the container's help output ONLY
+- Do NOT read any source code, test files, or docker-compose files
+- Do NOT read any files in this repository
+- If documentation is unclear or missing information, note gaps in ${GAPS_FILE}
 PROMPT_EOF
 )"
 
