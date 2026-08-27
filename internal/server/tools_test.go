@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rophy/harbor-mcp/internal/harbor"
 	"github.com/rophy/harbor-mcp/internal/server"
 )
@@ -76,9 +78,7 @@ func connect(ctx context.Context, srv *mcp.Server) (*mcp.ClientSession, error) {
 func TestNewMCPServer(t *testing.T) {
 	mock := &mockHarborClient{}
 	srv := server.NewMCPServer(mock)
-	if srv == nil {
-		t.Fatal("server is nil")
-	}
+	require.NotNil(t, srv)
 }
 
 func TestListProjectsTool(t *testing.T) {
@@ -87,21 +87,15 @@ func TestListProjectsTool(t *testing.T) {
 
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
-	if err != nil {
-		t.Fatalf("connecting: %v", err)
-	}
+	require.NoError(t, err)
 	defer session.Close()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_projects",
 		Arguments: map[string]any{},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected content in result")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Content)
 }
 
 func TestGetProjectTool(t *testing.T) {
@@ -110,21 +104,15 @@ func TestGetProjectTool(t *testing.T) {
 
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
-	if err != nil {
-		t.Fatalf("connecting: %v", err)
-	}
+	require.NoError(t, err)
 	defer session.Close()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_project",
 		Arguments: map[string]any{"project_name": "library"},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected content in result")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Content)
 }
 
 func TestListRepositoriesTool(t *testing.T) {
@@ -133,21 +121,15 @@ func TestListRepositoriesTool(t *testing.T) {
 
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
-	if err != nil {
-		t.Fatalf("connecting: %v", err)
-	}
+	require.NoError(t, err)
 	defer session.Close()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_repositories",
 		Arguments: map[string]any{"project_name": "library"},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected content in result")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Content)
 }
 
 func TestListArtifactsTool(t *testing.T) {
@@ -156,9 +138,7 @@ func TestListArtifactsTool(t *testing.T) {
 
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
-	if err != nil {
-		t.Fatalf("connecting: %v", err)
-	}
+	require.NoError(t, err)
 	defer session.Close()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -168,12 +148,8 @@ func TestListArtifactsTool(t *testing.T) {
 			"repository_name": "nginx",
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected content in result")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Content)
 }
 
 func TestGetArtifactTool(t *testing.T) {
@@ -182,9 +158,7 @@ func TestGetArtifactTool(t *testing.T) {
 
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
-	if err != nil {
-		t.Fatalf("connecting: %v", err)
-	}
+	require.NoError(t, err)
 	defer session.Close()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -195,12 +169,8 @@ func TestGetArtifactTool(t *testing.T) {
 			"reference":       "latest",
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected content in result")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Content)
 }
 
 func TestGetVulnerabilitiesTool(t *testing.T) {
@@ -209,9 +179,7 @@ func TestGetVulnerabilitiesTool(t *testing.T) {
 
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
-	if err != nil {
-		t.Fatalf("connecting: %v", err)
-	}
+	require.NoError(t, err)
 	defer session.Close()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -222,10 +190,6 @@ func TestGetVulnerabilitiesTool(t *testing.T) {
 			"reference":       "latest",
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected content in result")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Content)
 }

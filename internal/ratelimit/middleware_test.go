@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rophy/harbor-mcp/internal/auth"
 )
 
@@ -26,9 +29,7 @@ func TestMiddleware_Allowed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestMiddleware_Rejected(t *testing.T) {
@@ -42,26 +43,16 @@ func TestMiddleware_Rejected(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("first request: expected 200, got %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("second request: expected 429, got %d", rec.Code)
-	}
-	if rec.Header().Get("Retry-After") == "" {
-		t.Fatal("expected Retry-After header")
-	}
+	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+	assert.NotEmpty(t, rec.Header().Get("Retry-After"))
 
 	var body map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("failed to decode body: %v", err)
-	}
-	if body["error"] != "rate_limit_exceeded" {
-		t.Fatalf("expected error=rate_limit_exceeded, got %v", body["error"])
-	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	assert.Equal(t, "rate_limit_exceeded", body["error"])
 }
 
 func TestMiddleware_NoSubject(t *testing.T) {
@@ -76,10 +67,6 @@ func TestMiddleware_NoSubject(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler should be called when no subject in context")
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
+	assert.True(t, called, "handler should be called when no subject in context")
+	assert.Equal(t, http.StatusOK, rec.Code)
 }

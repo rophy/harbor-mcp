@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rophy/harbor-mcp/internal/auth"
 )
 
@@ -26,12 +29,8 @@ func TestNewUpstreamOIDC(t *testing.T) {
 	defer idp.Close()
 
 	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if upstream.AuthorizationEndpoint != "https://idp.example.com/authorize" {
-		t.Errorf("AuthorizationEndpoint = %q", upstream.AuthorizationEndpoint)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "https://idp.example.com/authorize", upstream.AuthorizationEndpoint)
 }
 
 func TestNewUpstreamOIDC_DiscoveryFails(t *testing.T) {
@@ -41,9 +40,7 @@ func TestNewUpstreamOIDC_DiscoveryFails(t *testing.T) {
 	defer idp.Close()
 
 	_, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
-	if err == nil {
-		t.Fatal("expected error for failed discovery")
-	}
+	require.Error(t, err)
 }
 
 func TestUpstreamOIDC_AuthorizationURL(t *testing.T) {
@@ -52,9 +49,7 @@ func TestUpstreamOIDC_AuthorizationURL(t *testing.T) {
 		ClientID:              "harbor-mcp",
 	}
 	u := upstream.AuthorizationURL("state123", "http://localhost:8080/auth/callback")
-	if u == "" {
-		t.Fatal("empty authorization URL")
-	}
+	assert.NotEmpty(t, u)
 }
 
 func TestNewUpstreamOIDC_DiscoveryInvalidJSON(t *testing.T) {
@@ -64,9 +59,7 @@ func TestNewUpstreamOIDC_DiscoveryInvalidJSON(t *testing.T) {
 	defer idp.Close()
 
 	_, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
+	require.Error(t, err)
 }
 
 func TestNewUpstreamOIDC_MissingEndpoints(t *testing.T) {
@@ -78,16 +71,12 @@ func TestNewUpstreamOIDC_MissingEndpoints(t *testing.T) {
 	defer idp.Close()
 
 	_, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
-	if err == nil {
-		t.Fatal("expected error for missing token_endpoint")
-	}
+	require.Error(t, err)
 }
 
 func TestNewUpstreamOIDC_Unreachable(t *testing.T) {
 	_, err := auth.NewUpstreamOIDC("http://127.0.0.1:1", "client-id", "client-secret", "")
-	if err == nil {
-		t.Fatal("expected error for unreachable issuer")
-	}
+	require.Error(t, err)
 }
 
 func TestNewUpstreamOIDC_ExternalURL(t *testing.T) {
@@ -100,19 +89,13 @@ func TestNewUpstreamOIDC_ExternalURL(t *testing.T) {
 	defer idp.Close()
 
 	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "https://external.example.com")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if upstream.AuthorizationEndpoint != "https://external.example.com/authorize" {
-		t.Errorf("AuthorizationEndpoint = %q, want external URL override", upstream.AuthorizationEndpoint)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "https://external.example.com/authorize", upstream.AuthorizationEndpoint)
 }
 
 func TestUpstreamOIDC_ExchangeCode(t *testing.T) {
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
+		assert.Equal(t, http.MethodPost, r.Method)
 		json.NewEncoder(w).Encode(map[string]string{
 			"access_token": "upstream-access-token",
 			"id_token":     "upstream-id-token",
@@ -127,12 +110,8 @@ func TestUpstreamOIDC_ExchangeCode(t *testing.T) {
 	}
 
 	tokens, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if tokens.AccessToken != "upstream-access-token" {
-		t.Errorf("AccessToken = %q", tokens.AccessToken)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "upstream-access-token", tokens.AccessToken)
 }
 
 func TestUpstreamOIDC_ExchangeCode_ServerError(t *testing.T) {
@@ -148,9 +127,7 @@ func TestUpstreamOIDC_ExchangeCode_ServerError(t *testing.T) {
 	}
 
 	_, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
-	if err == nil {
-		t.Fatal("expected error for 500 response")
-	}
+	require.Error(t, err)
 }
 
 func TestUpstreamOIDC_ExchangeCode_InvalidJSON(t *testing.T) {
@@ -166,9 +143,7 @@ func TestUpstreamOIDC_ExchangeCode_InvalidJSON(t *testing.T) {
 	}
 
 	_, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
-	if err == nil {
-		t.Fatal("expected error for invalid JSON response")
-	}
+	require.Error(t, err)
 }
 
 func TestUpstreamOIDC_ExchangeCode_Unreachable(t *testing.T) {
@@ -179,9 +154,7 @@ func TestUpstreamOIDC_ExchangeCode_Unreachable(t *testing.T) {
 	}
 
 	_, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
-	if err == nil {
-		t.Fatal("expected error for unreachable token endpoint")
-	}
+	require.Error(t, err)
 }
 
 func fakeJWT(sub string) string {
@@ -206,9 +179,7 @@ func TestUpstreamTokens_Subject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokens := &auth.UpstreamTokens{IDToken: tt.idToken}
-			if got := tokens.Subject(); got != tt.want {
-				t.Errorf("Subject() = %q, want %q", got, tt.want)
-			}
+			assert.Equal(t, tt.want, tokens.Subject())
 		})
 	}
 }

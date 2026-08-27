@@ -13,6 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rophy/harbor-mcp/internal/auth"
 )
 
@@ -36,9 +39,7 @@ func setupOAuthServerEnv(t *testing.T) *testEnv {
 	t.Helper()
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
+	require.NoError(t, err)
 
 	store := auth.NewMemoryStore()
 	provider := auth.NewOAuthProvider(store, key)
@@ -62,9 +63,7 @@ func setupOAuthServerEnv(t *testing.T) *testEnv {
 	t.Cleanup(idp.Close)
 
 	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
-	if err != nil {
-		t.Fatalf("upstream setup: %v", err)
-	}
+	require.NoError(t, err)
 
 	mux := http.NewServeMux()
 	handlers := auth.NewOAuthHandlers(provider, store, upstream, "http://localhost:8080")
@@ -79,24 +78,16 @@ func TestMetadataEndpoint(t *testing.T) {
 	srv := setupOAuthServer(t)
 
 	resp, err := http.Get(srv.URL + "/.well-known/oauth-authorization-server")
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var metadata map[string]any
 	json.NewDecoder(resp.Body).Decode(&metadata)
 
-	if metadata["authorization_endpoint"] != "http://localhost:8080/authorize" {
-		t.Errorf("authorization_endpoint = %v", metadata["authorization_endpoint"])
-	}
-	if metadata["token_endpoint"] != "http://localhost:8080/token" {
-		t.Errorf("token_endpoint = %v", metadata["token_endpoint"])
-	}
+	assert.Equal(t, "http://localhost:8080/authorize", metadata["authorization_endpoint"])
+	assert.Equal(t, "http://localhost:8080/token", metadata["token_endpoint"])
 }
 
 func TestRegisterEndpoint(t *testing.T) {
@@ -104,21 +95,15 @@ func TestRegisterEndpoint(t *testing.T) {
 
 	body := `{"redirect_uris": ["http://localhost:3000/callback"], "client_name": "test"}`
 	resp, err := http.Post(srv.URL+"/register", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var result map[string]any
 	json.NewDecoder(resp.Body).Decode(&result)
 
-	if result["client_id"] == nil || result["client_id"] == "" {
-		t.Error("client_id should be set")
-	}
+	assert.NotEmpty(t, result["client_id"])
 }
 
 func TestRegisterEndpoint_MissingRedirectURIs(t *testing.T) {
@@ -126,28 +111,20 @@ func TestRegisterEndpoint_MissingRedirectURIs(t *testing.T) {
 
 	body := `{"client_name": "test"}`
 	resp, err := http.Post(srv.URL+"/register", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestRegisterEndpoint_InvalidJSON(t *testing.T) {
 	srv := setupOAuthServer(t)
 
 	resp, err := http.Post(srv.URL+"/register", "application/json", strings.NewReader("not json"))
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestAuthorizeEndpoint_UnknownClient(t *testing.T) {
@@ -158,23 +135,18 @@ func TestAuthorizeEndpoint_UnknownClient(t *testing.T) {
 	}}
 
 	resp, err := client.Get(srv.URL + "/authorize?client_id=unknown&response_type=code&redirect_uri=http://localhost/cb&code_challenge=test&code_challenge_method=S256")
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther {
-		t.Fatalf("should not redirect for unknown client, got %d", resp.StatusCode)
-	}
+	assert.NotEqual(t, http.StatusFound, resp.StatusCode, "should not redirect for unknown client")
+	assert.NotEqual(t, http.StatusSeeOther, resp.StatusCode, "should not redirect for unknown client")
 }
 
 func registerAndGetClientID(t *testing.T, srvURL string) string {
 	t.Helper()
 	body := `{"redirect_uris": ["http://localhost:9999/callback"], "client_name": "test"}`
 	resp, err := http.Post(srvURL+"/register", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 	var result map[string]any
 	json.NewDecoder(resp.Body).Decode(&result)
@@ -193,23 +165,14 @@ func TestAuthorizeEndpoint_RedirectsToUpstream(t *testing.T) {
 		srv.URL, clientID, url.QueryEscape("http://localhost:9999/callback"))
 
 	resp, err := client.Get(authorizeURL)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusFound {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, want 302; body: %s", resp.StatusCode, body)
-	}
+	require.Equal(t, http.StatusFound, resp.StatusCode)
 
 	location := resp.Header.Get("Location")
-	if !strings.Contains(location, "idp.example.com/authorize") {
-		t.Errorf("expected redirect to upstream IDP, got: %s", location)
-	}
-	if !strings.Contains(location, "client_id=client-id") {
-		t.Errorf("expected upstream client_id in redirect, got: %s", location)
-	}
+	assert.Contains(t, location, "idp.example.com/authorize")
+	assert.Contains(t, location, "client_id=client-id")
 }
 
 func TestTokenEndpoint_InvalidGrant(t *testing.T) {
@@ -220,42 +183,30 @@ func TestTokenEndpoint_InvalidGrant(t *testing.T) {
 		"code":       {"invalid-code"},
 		"client_id":  {"nonexistent"},
 	})
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		t.Fatal("expected error for invalid token request")
-	}
+	assert.NotEqual(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestCallbackEndpoint_MissingParams(t *testing.T) {
 	srv := setupOAuthServer(t)
 
 	resp, err := http.Get(srv.URL + "/auth/callback")
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestCallbackEndpoint_UnknownState(t *testing.T) {
 	srv := setupOAuthServer(t)
 
 	resp, err := http.Get(srv.URL + "/auth/callback?state=unknown&code=somecode")
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestRequireBearerToken_MissingToken(t *testing.T) {
@@ -271,9 +222,7 @@ func TestRequireBearerToken_MissingToken(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestRequireBearerToken_InvalidToken(t *testing.T) {
@@ -290,16 +239,12 @@ func TestRequireBearerToken_InvalidToken(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestCallbackEndpoint_UpstreamTokenExchangeFails(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
+	require.NoError(t, err)
 
 	store := auth.NewMemoryStore()
 	provider := auth.NewOAuthProvider(store, key)
@@ -318,9 +263,7 @@ func TestCallbackEndpoint_UpstreamTokenExchangeFails(t *testing.T) {
 	t.Cleanup(idp.Close)
 
 	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
-	if err != nil {
-		t.Fatalf("upstream setup: %v", err)
-	}
+	require.NoError(t, err)
 
 	mux := http.NewServeMux()
 	handlers := auth.NewOAuthHandlers(provider, store, upstream, "http://localhost:8080")
@@ -340,35 +283,23 @@ func TestCallbackEndpoint_UpstreamTokenExchangeFails(t *testing.T) {
 		srv.URL, clientID, url.QueryEscape("http://localhost:9999/callback"), codeChallenge)
 
 	resp, err := noFollow.Get(authorizeURL)
-	if err != nil {
-		t.Fatalf("authorize failed: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("authorize status = %d, want 302 or 303", resp.StatusCode)
-	}
+	require.True(t, resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther,
+		"authorize status = %d, want 302 or 303", resp.StatusCode)
 
 	location, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil {
-		t.Fatalf("parse location: %v", err)
-	}
+	require.NoError(t, err)
 	upstreamState := location.Query().Get("state")
-	if upstreamState == "" {
-		t.Fatalf("no state in upstream redirect; Location: %s", resp.Header.Get("Location"))
-	}
+	require.NotEmpty(t, upstreamState, "no state in upstream redirect; Location: %s", resp.Header.Get("Location"))
 
 	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-code", srv.URL, upstreamState)
 	resp, err = noFollow.Get(callbackURL)
-	if err != nil {
-		t.Fatalf("callback failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadGateway {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, want 502; body: %s", resp.StatusCode, body)
-	}
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
 }
 
 func completeOAuthFlow(t *testing.T, env *testEnv) (accessToken string) {
@@ -389,28 +320,20 @@ func completeOAuthFlow(t *testing.T, env *testEnv) (accessToken string) {
 		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
 
 	resp, err := noFollow.Get(authorizeURL)
-	if err != nil {
-		t.Fatalf("authorize request failed: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 
 	location, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil {
-		t.Fatalf("parse authorize redirect: %v", err)
-	}
+	require.NoError(t, err)
 	upstreamState := location.Query().Get("state")
 
 	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-upstream-code", srv.URL, upstreamState)
 	resp, err = noFollow.Get(callbackURL)
-	if err != nil {
-		t.Fatalf("callback request failed: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 
 	callbackRedirect, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil {
-		t.Fatalf("parse callback redirect: %v", err)
-	}
+	require.NoError(t, err)
 	authCode := callbackRedirect.Query().Get("code")
 
 	tokenResp, err := http.PostForm(srv.URL+"/token", url.Values{
@@ -420,9 +343,7 @@ func completeOAuthFlow(t *testing.T, env *testEnv) (accessToken string) {
 		"client_id":     {clientID},
 		"code_verifier": {codeVerifier},
 	})
-	if err != nil {
-		t.Fatalf("token request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer tokenResp.Body.Close()
 
 	var tokenResult map[string]any
@@ -448,45 +369,28 @@ func TestCallbackEndpoint_HappyPath(t *testing.T) {
 		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
 
 	resp, err := noFollow.Get(authorizeURL)
-	if err != nil {
-		t.Fatalf("authorize request failed: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusFound {
-		t.Fatalf("authorize status = %d, want 302", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusFound, resp.StatusCode)
 
 	location, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil {
-		t.Fatalf("parse authorize redirect: %v", err)
-	}
+	require.NoError(t, err)
 	upstreamState := location.Query().Get("state")
-	if upstreamState == "" {
-		t.Fatal("no state in upstream redirect")
-	}
+	require.NotEmpty(t, upstreamState)
 
 	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-upstream-code", srv.URL, upstreamState)
 	resp, err = noFollow.Get(callbackURL)
-	if err != nil {
-		t.Fatalf("callback request failed: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("callback status = %d, want 302 or 303", resp.StatusCode)
-	}
+	require.True(t, resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther,
+		"callback status = %d, want 302 or 303", resp.StatusCode)
 
 	callbackRedirect, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil {
-		t.Fatalf("parse callback redirect: %v", err)
-	}
+	require.NoError(t, err)
 	authCode := callbackRedirect.Query().Get("code")
-	if authCode == "" {
-		t.Fatal("no authorization code in callback redirect")
-	}
-	if callbackRedirect.Query().Get("state") != "client-state" {
-		t.Errorf("state = %q, want client-state", callbackRedirect.Query().Get("state"))
-	}
+	require.NotEmpty(t, authCode)
+	assert.Equal(t, "client-state", callbackRedirect.Query().Get("state"))
 
 	tokenResp, err := http.PostForm(srv.URL+"/token", url.Values{
 		"grant_type":    {"authorization_code"},
@@ -495,25 +399,19 @@ func TestCallbackEndpoint_HappyPath(t *testing.T) {
 		"client_id":     {clientID},
 		"code_verifier": {codeVerifier},
 	})
-	if err != nil {
-		t.Fatalf("token request failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer tokenResp.Body.Close()
 
 	if tokenResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(tokenResp.Body)
-		t.Fatalf("token status = %d, want 200; body: %s", tokenResp.StatusCode, body)
+		require.Failf(t, "token exchange failed", "status = %d; body: %s", tokenResp.StatusCode, body)
 	}
 
 	var tokenResult map[string]any
 	json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
 
-	if tokenResult["access_token"] == nil || tokenResult["access_token"] == "" {
-		t.Error("expected access_token in response")
-	}
-	if tokenResult["token_type"] != "bearer" {
-		t.Errorf("token_type = %v, want bearer", tokenResult["token_type"])
-	}
+	assert.NotEmpty(t, tokenResult["access_token"])
+	assert.Equal(t, "bearer", tokenResult["token_type"])
 }
 
 func TestRequireBearerToken_SetsSubjectInContext(t *testing.T) {
@@ -566,30 +464,21 @@ func TestRequireBearerToken_SetsSubjectInContext(t *testing.T) {
 	authorizeURL := fmt.Sprintf("%s/authorize?client_id=%s&response_type=code&redirect_uri=%s&code_challenge=%s&code_challenge_method=S256&state=test-state-value",
 		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
 	resp, err := noFollow.Get(authorizeURL)
-	if err != nil {
-		t.Fatalf("authorize: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("authorize: status %d, want 302 or 303", resp.StatusCode)
-	}
+	require.True(t, resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther,
+		"authorize: status %d, want 302 or 303", resp.StatusCode)
 
 	location, _ := url.Parse(resp.Header.Get("Location"))
 	upstreamState := location.Query().Get("state")
-	if upstreamState == "" {
-		t.Fatalf("no state in upstream redirect: %s", resp.Header.Get("Location"))
-	}
+	require.NotEmpty(t, upstreamState, "no state in upstream redirect: %s", resp.Header.Get("Location"))
 
 	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-code", srv.URL, upstreamState)
 	resp, err = noFollow.Get(callbackURL)
-	if err != nil {
-		t.Fatalf("callback: %v", err)
-	}
-	body, _ := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("callback: status %d, body: %s", resp.StatusCode, body)
-	}
+	require.True(t, resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther,
+		"callback: status %d", resp.StatusCode)
 
 	callbackRedirect, _ := url.Parse(resp.Header.Get("Location"))
 	authCode := callbackRedirect.Query().Get("code")
@@ -601,30 +490,21 @@ func TestRequireBearerToken_SetsSubjectInContext(t *testing.T) {
 		"client_id":     {clientID},
 		"code_verifier": {codeVerifier},
 	})
-	if err != nil {
-		t.Fatalf("token: %v", err)
-	}
+	require.NoError(t, err)
 	defer tokenResp.Body.Close()
 
 	var tokenResult map[string]any
 	json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
 	accessToken := tokenResult["access_token"].(string)
 
-	// Use the token against the protected endpoint
 	req, _ := http.NewRequest("GET", srv.URL+"/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("protected request: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("protected status = %d, want 200", resp.StatusCode)
-	}
-	if capturedSubject != "alice" {
-		t.Errorf("subject = %q, want alice", capturedSubject)
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "alice", capturedSubject)
 }
 
 func TestRequireBearerToken_NonBearerScheme(t *testing.T) {
@@ -641,9 +521,7 @@ func TestRequireBearerToken_NonBearerScheme(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestTokenEndpoint_ReplayedCode(t *testing.T) {
@@ -663,43 +541,35 @@ func TestTokenEndpoint_ReplayedCode(t *testing.T) {
 		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
 
 	resp, err := noFollow.Get(authorizeURL)
-	if err != nil {
-		t.Fatalf("authorize failed: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 	location, _ := url.Parse(resp.Header.Get("Location"))
 
 	callbackResp, err := noFollow.Get(fmt.Sprintf("%s/auth/callback?state=%s&code=mock-code", srv.URL, location.Query().Get("state")))
-	if err != nil {
-		t.Fatalf("callback failed: %v", err)
-	}
+	require.NoError(t, err)
 	callbackResp.Body.Close()
 	callbackRedirect, _ := url.Parse(callbackResp.Header.Get("Location"))
 	authCode := callbackRedirect.Query().Get("code")
 
-	// First exchange succeeds
-	resp1, _ := http.PostForm(srv.URL+"/token", url.Values{
+	resp1, err := http.PostForm(srv.URL+"/token", url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {authCode},
 		"redirect_uri":  {redirectURI},
 		"client_id":     {clientID},
 		"code_verifier": {codeVerifier},
 	})
+	require.NoError(t, err)
 	resp1.Body.Close()
-	if resp1.StatusCode != http.StatusOK {
-		t.Fatalf("first token exchange status = %d, want 200", resp1.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp1.StatusCode)
 
-	// Second exchange with same code should fail
-	resp2, _ := http.PostForm(srv.URL+"/token", url.Values{
+	resp2, err := http.PostForm(srv.URL+"/token", url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {authCode},
 		"redirect_uri":  {redirectURI},
 		"client_id":     {clientID},
 		"code_verifier": {codeVerifier},
 	})
+	require.NoError(t, err)
 	resp2.Body.Close()
-	if resp2.StatusCode == http.StatusOK {
-		t.Fatal("expected error for replayed authorization code")
-	}
+	assert.NotEqual(t, http.StatusOK, resp2.StatusCode, "replayed authorization code should fail")
 }

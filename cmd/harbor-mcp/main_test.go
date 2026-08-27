@@ -6,19 +6,16 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadOrGenerateKey_GeneratesWhenEmpty(t *testing.T) {
 	key, err := loadOrGenerateKey("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if key == nil {
-		t.Fatal("expected non-nil key")
-	}
-	if key.N.BitLen() != 2048 {
-		t.Errorf("key size = %d, want 2048", key.N.BitLen())
-	}
+	require.NoError(t, err)
+	require.NotNil(t, key)
+	assert.Equal(t, 2048, key.N.BitLen())
 }
 
 func TestLoadOrGenerateKey_ParsesValidPEM(t *testing.T) {
@@ -29,19 +26,13 @@ func TestLoadOrGenerateKey_ParsesValidPEM(t *testing.T) {
 	})
 
 	parsed, err := loadOrGenerateKey(string(pemBytes))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if parsed.N.Cmp(key.N) != 0 {
-		t.Error("parsed key does not match original")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 0, parsed.N.Cmp(key.N), "parsed key does not match original")
 }
 
 func TestLoadOrGenerateKey_InvalidPEM(t *testing.T) {
 	_, err := loadOrGenerateKey("not a pem")
-	if err == nil {
-		t.Fatal("expected error for invalid PEM")
-	}
+	require.Error(t, err)
 }
 
 func TestLoadOrGenerateKey_InvalidKeyBytes(t *testing.T) {
@@ -51,7 +42,5 @@ func TestLoadOrGenerateKey_InvalidKeyBytes(t *testing.T) {
 	})
 
 	_, err := loadOrGenerateKey(string(pemBytes))
-	if err == nil {
-		t.Fatal("expected error for invalid key bytes")
-	}
+	require.Error(t, err)
 }
