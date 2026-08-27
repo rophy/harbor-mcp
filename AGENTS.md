@@ -3,13 +3,15 @@
 ## Testing Policy
 
 After any code change:
-1. Run linter: `go vet ./...`
-2. Run unit tests: `go test ./...`
+1. Run linter: `make lint`
+2. Run unit tests: `make unit-test`
 
 Before creating a PR:
-3. Run e2e tests: `go test -tags e2e -count=1 ./e2e/`
+3. Run e2e tests: `make e2e-test`
 
 All test failures must be fixed. There is no such thing as a "pre-existing error" — if a test fails, fix it before proceeding.
+
+Unit test coverage must not drop below 80%. Check the total % printed by `make unit-test`.
 
 When running tests, redirect full output to a temp file first, then grep for summary. Never pipe test output directly through grep.
 
