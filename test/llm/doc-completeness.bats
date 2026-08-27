@@ -8,17 +8,88 @@
 # running — it never trusts the AI's self-report.
 #
 # Requires:
-#   - E2E environment running (cd e2e && ./setup.sh)
-#     (provides Harbor at :8880, OIDC mock at :28090, robot account)
+#   - Docker (for Harbor + OIDC mock)
 #   - claude CLI with API key
 #   - curl, jq
 #
 # Run: bats test/llm/doc-completeness.bats
 
 HARBOR_URL="${HARBOR_URL:-http://localhost:8880}"
+HARBOR_ADMIN_USER="${HARBOR_ADMIN_USER:-admin}"
+HARBOR_ADMIN_PASS="${HARBOR_ADMIN_PASS:-Harbor12345}"
 OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-http://localhost:28090}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-harbor-mcp}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-test-secret}"
+
+E2E_DIR="${BATS_TEST_DIRNAME}/../../e2e"
+ENV_FILE="${E2E_DIR}/.env"
+
+ensure_infra() {
+  # Start Harbor + OIDC mock if not already running (skip harbor-mcp)
+  if ! curl -sf "${HARBOR_URL}/api/v2.0/ping" > /dev/null 2>&1; then
+    echo "Starting Harbor + OIDC mock..." >&3
+    docker compose -f "${E2E_DIR}/docker-compose.yml" up -d \
+      harbor-nginx oidc-mock
+
+    for i in $(seq 1 120); do
+      if curl -sf "${HARBOR_URL}/api/v2.0/ping" > /dev/null 2>&1; then
+        break
+      fi
+      if [ "$i" -eq 120 ]; then
+        echo "ERROR: Harbor did not become healthy within 120s" >&2
+        return 1
+      fi
+      sleep 1
+    done
+  fi
+}
+
+ensure_robot_account() {
+  # Create robot account if .env doesn't exist
+  if [ -f "$ENV_FILE" ]; then
+    return 0
+  fi
+
+  echo "Creating robot account..." >&3
+  local ROBOT_RESPONSE
+  ROBOT_RESPONSE=$(curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
+    -H "Content-Type: application/json" \
+    -X POST "${HARBOR_URL}/api/v2.0/robots" \
+    -d '{
+      "name": "mcp-reader",
+      "duration": -1,
+      "level": "system",
+      "permissions": [{
+        "namespace": "*",
+        "kind": "project",
+        "access": [
+          {"resource": "repository", "action": "list"},
+          {"resource": "repository", "action": "pull"},
+          {"resource": "artifact", "action": "read"},
+          {"resource": "artifact", "action": "list"},
+          {"resource": "tag", "action": "list"},
+          {"resource": "scan", "action": "read"}
+        ]
+      }]
+    }')
+
+  local ROBOT_NAME ROBOT_SECRET
+  ROBOT_NAME=$(echo "$ROBOT_RESPONSE" | jq -r '.name')
+  ROBOT_SECRET=$(echo "$ROBOT_RESPONSE" | jq -r '.secret')
+
+  cat > "$ENV_FILE" <<EOF
+HARBOR_ROBOT_NAME=${ROBOT_NAME}
+HARBOR_ROBOT_SECRET=${ROBOT_SECRET}
+EOF
+}
+
+ensure_test_project() {
+  # Create library project if it doesn't exist
+  curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
+    -H "Content-Type: application/json" \
+    -X POST "${HARBOR_URL}/api/v2.0/projects" \
+    -d '{"project_name":"library","public":true}' > /dev/null 2>&1 || true
+}
 
 setup_file() {
   export LOG_DIR="${BATS_TEST_DIRNAME}/logs"
@@ -31,16 +102,12 @@ setup_file() {
 
   command -v claude >/dev/null 2>&1 || skip "claude CLI not found"
   command -v jq >/dev/null 2>&1 || skip "jq not found"
+  command -v docker >/dev/null 2>&1 || skip "docker not found"
 
-  # Verify dependencies are running
-  curl -sf "${HARBOR_URL}/api/v2.0/ping" > /dev/null 2>&1 \
-    || skip "Harbor not running at ${HARBOR_URL}"
-  curl -sf "${OIDC_ISSUER_URL}/.well-known/openid-configuration" > /dev/null 2>&1 \
-    || skip "OIDC provider not running at ${OIDC_ISSUER_URL}"
+  ensure_infra
+  ensure_test_project
+  ensure_robot_account
 
-  # Read robot credentials from e2e .env (created by setup.sh)
-  local ENV_FILE="${BATS_TEST_DIRNAME}/../../e2e/.env"
-  [ -f "$ENV_FILE" ] || skip "e2e/.env not found — run 'cd e2e && ./setup.sh' first"
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   export HARBOR_ROBOT_NAME HARBOR_ROBOT_SECRET
@@ -117,7 +184,7 @@ PROMPT_EOF
 }
 
 @test "dynamic client registration works" {
-  run curl -sf -X POST http://localhost:18080/auth/register \
+  run curl -sf -X POST http://localhost:18080/register \
     -H "Content-Type: application/json" \
     -d '{"redirect_uris":["http://localhost:19999/callback"]}'
   [ "$status" -eq 0 ]
