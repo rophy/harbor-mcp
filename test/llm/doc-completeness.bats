@@ -2,13 +2,14 @@
 
 # LLM doc-completeness test for harbor-mcp.
 #
-# An AI agent is given the harbor-mcp binary and dependency endpoints.
-# It must read the help output to figure out how to configure, deploy,
-# and connect an MCP client (opencode). The test independently verifies
-# the results — it never trusts the AI's self-report.
+# An AI agent is given a container image and dependency endpoints.
+# It must run the image to read the help output, then figure out how
+# to deploy harbor-mcp and connect an MCP client (opencode).
+# The test independently verifies the results — it never trusts the
+# AI's self-report.
 #
 # Requires:
-#   - Docker (for Harbor + OIDC mock)
+#   - Docker (for Harbor + OIDC mock + building the image)
 #   - claude CLI with API key
 #   - opencode CLI
 #   - curl, jq
@@ -22,6 +23,7 @@ OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-http://localhost:28090}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-harbor-mcp}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-test-secret}"
 
+IMAGE_NAME="harbor-mcp:llm-test"
 OPENCODE_CONFIG="${HOME}/.config/opencode/opencode.jsonc"
 OPENCODE_AUTH="${HOME}/.local/share/opencode/mcp-auth.json"
 
@@ -48,11 +50,16 @@ ensure_infra() {
 }
 
 ensure_robot_account() {
-  if [ -f "$ENV_FILE" ]; then
-    return 0
+  echo "Creating robot account..." >&3
+  # Delete existing robot if any
+  local EXISTING_ID
+  EXISTING_ID=$(curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
+    "${HARBOR_URL}/api/v2.0/robots" | jq -r '.[] | select(.name=="robot$mcp-reader") | .id')
+  if [ -n "$EXISTING_ID" ]; then
+    curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
+      -X DELETE "${HARBOR_URL}/api/v2.0/robots/${EXISTING_ID}" || true
   fi
 
-  echo "Creating robot account..." >&3
   local ROBOT_RESPONSE
   ROBOT_RESPONSE=$(curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
     -H "Content-Type: application/json" \
@@ -79,10 +86,7 @@ ensure_robot_account() {
   ROBOT_NAME=$(echo "$ROBOT_RESPONSE" | jq -r '.name')
   ROBOT_SECRET=$(echo "$ROBOT_RESPONSE" | jq -r '.secret')
 
-  cat > "$ENV_FILE" <<EOF
-HARBOR_ROBOT_NAME=${ROBOT_NAME}
-HARBOR_ROBOT_SECRET=${ROBOT_SECRET}
-EOF
+  printf "HARBOR_ROBOT_NAME='%s'\nHARBOR_ROBOT_SECRET='%s'\n" "$ROBOT_NAME" "$ROBOT_SECRET" > "$ENV_FILE"
 }
 
 ensure_test_project() {
@@ -93,7 +97,6 @@ ensure_test_project() {
 }
 
 clean_opencode() {
-  # Remove harbor-mcp from opencode config
   if [ -f "$OPENCODE_CONFIG" ]; then
     local tmp
     tmp=$(jq 'del(.mcp["harbor-mcp"])' "$OPENCODE_CONFIG" 2>/dev/null)
@@ -101,7 +104,6 @@ clean_opencode() {
       echo "$tmp" > "$OPENCODE_CONFIG"
     fi
   fi
-  # Remove harbor-mcp auth tokens
   if [ -f "$OPENCODE_AUTH" ]; then
     local tmp
     tmp=$(jq 'del(.["harbor-mcp"])' "$OPENCODE_AUTH" 2>/dev/null)
@@ -125,6 +127,15 @@ setup_file() {
   command -v jq >/dev/null 2>&1 || skip "jq not found"
   command -v docker >/dev/null 2>&1 || skip "docker not found"
 
+  # Clean up port 18080 from any previous run
+  docker ps -q --filter "publish=18080" | xargs -r docker rm -f 2>/dev/null || true
+  fuser -k 18080/tcp 2>/dev/null || true
+  sleep 1
+  if curl -sf http://localhost:18080/ > /dev/null 2>&1; then
+    echo "ERROR: port 18080 is still in use after cleanup" >&2
+    return 1
+  fi
+
   ensure_infra
   ensure_test_project
   ensure_robot_account
@@ -134,43 +145,64 @@ setup_file() {
   source "$ENV_FILE"
   export HARBOR_ROBOT_NAME HARBOR_ROBOT_SECRET
 
-  # Build the binary
-  export BINARY="${BATS_TEST_DIRNAME}/../../harbor-mcp"
-  go build -o "${BINARY}" ./cmd/harbor-mcp/
+  # Discover Docker network and internal URLs
+  local OIDC_CONTAINER
+  OIDC_CONTAINER=$(docker ps --format '{{.Names}}' | grep -m1 'oidc-mock')
+  if [ -z "$OIDC_CONTAINER" ]; then
+    echo "ERROR: oidc-mock container not running" >&2
+    return 1
+  fi
+  export DOCKER_NETWORK
+  DOCKER_NETWORK=$(docker inspect "$OIDC_CONTAINER" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+  export HARBOR_INTERNAL_URL="http://harbor-nginx:8080"
+  export OIDC_INTERNAL_URL="http://oidc-mock:8080"
+
+  # Build the container image
+  local REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  echo "Building container image ${IMAGE_NAME}..." >&3
+  docker build -t "${IMAGE_NAME}" -f "${REPO_ROOT}/Dockerfile" "${REPO_ROOT}" > /dev/null 2>&1
 }
 
 teardown_file() {
-  pkill -f "harbor-mcp serve" 2>/dev/null || true
+  docker ps -q --filter "publish=18080" | xargs -r docker rm -f 2>/dev/null || true
+  fuser -k 18080/tcp 2>/dev/null || true
 }
 
 @test "AI deploys harbor-mcp and connects opencode" {
   local PROMPT
-  PROMPT="$(cat <<PROMPT_EOF
-You have a binary at: ${BINARY}
+  # Use quoted heredoc to prevent $ expansion (robot names contain $ like robot$mcp-reader)
+  PROMPT="$(cat <<'PROMPT_EOF'
+You have a container image: __IMAGE_NAME__
 
 Run it to discover what it does and how to configure it.
 
-You have the following infrastructure already running:
+You have the following infrastructure already running on the host:
 
   Harbor registry:
-    URL: ${HARBOR_URL}
-    Robot account: ${HARBOR_ROBOT_NAME} / ${HARBOR_ROBOT_SECRET}
+    URL: __HARBOR_URL__
+    Internal URL (from Docker network): __HARBOR_INTERNAL_URL__
+    Robot account: __HARBOR_ROBOT_NAME__ / __HARBOR_ROBOT_SECRET__
 
   OIDC provider:
-    Issuer URL: ${OIDC_ISSUER_URL}
-    Client ID: ${OIDC_CLIENT_ID}
-    Client secret: ${OIDC_CLIENT_SECRET}
+    Issuer URL: __OIDC_ISSUER_URL__
+    Internal URL (from Docker network): __OIDC_INTERNAL_URL__
+    Client ID: __OIDC_CLIENT_ID__
+    Client secret: __OIDC_CLIENT_SECRET__
+
+  Docker network: __DOCKER_NETWORK__
+    Harbor and OIDC are on this network. To connect a container:
+    docker run --network __DOCKER_NETWORK__ ...
 
   OIDC mock login (no human involved):
     The OIDC authorize endpoint shows a user-picker HTML page.
-    To log in programmatically, POST to ${OIDC_ISSUER_URL}/authorize/callback
+    To log in programmatically, POST to __OIDC_ISSUER_URL__/authorize/callback
     with form-encoded fields: sub=alice, client_id, redirect_uri, state, nonce
     (use the same values from the authorize URL query params).
     It returns a 302 redirect with the authorization code.
 
 Your task:
-1. Run the binary to read its documentation
-2. Configure and start harbor-mcp on port 18080 (background process)
+1. Run the container image to read its documentation
+2. Deploy harbor-mcp on port 18080 using Docker
 3. Verify it is running (check the OAuth discovery endpoint)
 4. Add harbor-mcp to opencode using: opencode mcp add
 5. Authenticate opencode with harbor-mcp. Since there is no browser,
@@ -193,14 +225,33 @@ Your task:
 6. Verify opencode can connect: run 'timeout 10 opencode mcp list'
    and confirm harbor-mcp shows as connected
 
-Rules:
-- Figure out harbor-mcp configuration from the binary's help output ONLY
-- Do NOT read any source code, test files, or docker-compose files
-- Do NOT read any files in this repository except the binary output
-- If documentation is unclear or missing information, note gaps in ${GAPS_FILE}
+Important:
 - Use SERVER_BASE_URL=http://localhost:18080 when configuring harbor-mcp
+- The host URLs (localhost) are reachable from your shell
+- The internal URLs are reachable from Docker containers on the same network
+
+Rules:
+- Figure out harbor-mcp configuration from the container's help output ONLY
+- Do NOT read any source code, test files, or docker-compose files
+- Do NOT read any files in this repository
+- You MUST write __GAPS_FILE__ when done. List every place where the
+  documentation was unclear, incomplete, or where you had to guess.
+  If the documentation was perfectly clear, write "No gaps found." to
+  the file. The file must exist when you finish.
 PROMPT_EOF
 )"
+  # Substitute placeholders (sed with | delimiter since URLs contain /)
+  PROMPT="${PROMPT//__IMAGE_NAME__/${IMAGE_NAME}}"
+  PROMPT="${PROMPT//__HARBOR_URL__/${HARBOR_URL}}"
+  PROMPT="${PROMPT//__HARBOR_ROBOT_NAME__/${HARBOR_ROBOT_NAME}}"
+  PROMPT="${PROMPT//__HARBOR_ROBOT_SECRET__/${HARBOR_ROBOT_SECRET}}"
+  PROMPT="${PROMPT//__OIDC_ISSUER_URL__/${OIDC_ISSUER_URL}}"
+  PROMPT="${PROMPT//__OIDC_CLIENT_ID__/${OIDC_CLIENT_ID}}"
+  PROMPT="${PROMPT//__OIDC_CLIENT_SECRET__/${OIDC_CLIENT_SECRET}}"
+  PROMPT="${PROMPT//__DOCKER_NETWORK__/${DOCKER_NETWORK}}"
+  PROMPT="${PROMPT//__HARBOR_INTERNAL_URL__/${HARBOR_INTERNAL_URL}}"
+  PROMPT="${PROMPT//__OIDC_INTERNAL_URL__/${OIDC_INTERNAL_URL}}"
+  PROMPT="${PROMPT//__GAPS_FILE__/${GAPS_FILE}}"
 
   claude -p "$PROMPT" \
     --dangerously-skip-permissions \
@@ -245,12 +296,19 @@ PROMPT_EOF
   echo "$output" | grep -q "connected"
 }
 
+@test "gaps file was written" {
+  [ -f "${GAPS_FILE}" ]
+}
+
 @test "documentation gaps report" {
   if [ -f "${GAPS_FILE}" ] && [ -s "${GAPS_FILE}" ]; then
-    echo "=== Documentation gaps found ==="
+    echo "=== Gaps file contents ==="
     cat "${GAPS_FILE}"
-    echo "================================"
-  else
-    echo "No documentation gaps reported"
+    echo "========================="
+    # Fail if there are real gaps (not just "no gaps found")
+    if ! grep -qi "no gaps" "${GAPS_FILE}"; then
+      echo "Documentation gaps found — review and fix README"
+      return 1
+    fi
   fi
 }
