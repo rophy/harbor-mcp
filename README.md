@@ -53,7 +53,12 @@ The MCP endpoint is at `/mcp` using Streamable HTTP transport with OAuth 2.1 aut
 claude mcp add harbor-mcp --transport http https://harbor-mcp.example.com/mcp
 ```
 
-**Cursor / other MCP clients:** add the server URL `https://harbor-mcp.example.com/mcp` with HTTP transport. The client handles the OAuth login flow automatically via the `.well-known/oauth-authorization-server` discovery endpoint.
+**OpenCode:**
+```bash
+opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
+```
+
+**Other MCP clients:** add the server URL `https://harbor-mcp.example.com/mcp` with HTTP transport. The client handles the OAuth login flow automatically via the `.well-known/oauth-authorization-server` discovery endpoint.
 
 ## Configuration
 
