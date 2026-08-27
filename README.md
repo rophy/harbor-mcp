@@ -44,13 +44,16 @@ volumes:
   harbor-mcp-data:
 ```
 
-### Claude Code
+### Connect an MCP Client
 
+The MCP endpoint is at `/mcp` using Streamable HTTP transport with OAuth 2.1 authentication.
+
+**Claude Code:**
 ```bash
 claude mcp add harbor-mcp --transport http https://harbor-mcp.example.com/mcp
 ```
 
-Then use MCP tools like `list_projects`, `get_artifact`, etc. Claude Code handles the OAuth login flow automatically.
+**Cursor / other MCP clients:** add the server URL `https://harbor-mcp.example.com/mcp` with HTTP transport. The client handles the OAuth login flow automatically via the `.well-known/oauth-authorization-server` discovery endpoint.
 
 ## Configuration
 
