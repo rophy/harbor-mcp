@@ -46,7 +46,10 @@ volumes:
 
 The `/data` volume stores the SQLite database containing registered OAuth clients and authorization state. Without a persistent volume, all client registrations and tokens are lost on container restart — MCP clients will need to re-register and re-authenticate.
 
-**Docker networking:** harbor-mcp must be able to reach both the Harbor API (`HARBOR_URL`) and the OIDC provider's endpoints. If Harbor and the OIDC provider run as Docker containers, put harbor-mcp on the same Docker network so it can resolve their internal hostnames. When using `--network host`, set URLs to `http://localhost:<port>` instead.
+**Docker networking:** harbor-mcp must be able to reach both the Harbor API (`HARBOR_URL`) and the OIDC provider's token/JWKS endpoints (from the OIDC discovery document).
+
+- **Same Docker network (recommended):** put harbor-mcp on the same network as Harbor and the OIDC provider so it can resolve their internal hostnames. Use internal ports (e.g. `http://harbor-nginx:8080` rather than the host-mapped port).
+- **Host network (`--network host`):** only works if the OIDC provider's discovery document returns `localhost`-reachable URLs for `token_endpoint` and `jwks_uri`. If the discovery document returns internal Docker hostnames (e.g. `http://oidc-mock:8080`), server-side token exchange will fail — use the same Docker network instead.
 
 ### Connect an MCP Client
 
@@ -122,7 +125,7 @@ MCP clients normally handle the OAuth flow with a browser. For headless environm
 
 1. **Discover endpoints:** `GET /.well-known/oauth-authorization-server` returns `registration_endpoint`, `authorization_endpoint`, and `token_endpoint`.
 2. **Register a client:** `POST /register` with `{"redirect_uris": ["http://localhost:0/callback"], "client_name": "my-client"}`. Returns `client_id`.
-3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&scope=harbor:read`. This redirects to the upstream OIDC login page. Complete authentication and capture the `code` from the final redirect.
+3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&nonce=<nonce>&scope=harbor:read`. This redirects to the upstream OIDC login page. Complete authentication and capture the `code` from the final redirect.
 4. **Exchange code for token:** `POST /token` with `grant_type=authorization_code&code=<code>&redirect_uri=<uri>&client_id=<id>&code_verifier=<verifier>`. Returns an access token.
 
 ## Development
