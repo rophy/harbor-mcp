@@ -31,7 +31,7 @@ services:
       - "8080:8080"
     environment:
       HARBOR_URL: https://harbor.example.com
-      HARBOR_ROBOT_NAME: robot$mcp-reader
+      HARBOR_ROBOT_NAME: 'robot$mcp-reader'
       HARBOR_ROBOT_SECRET: <robot-secret>
       OAUTH_UPSTREAM_ISSUER: https://idp.example.com/realms/main
       OAUTH_UPSTREAM_CLIENT_ID: harbor-mcp

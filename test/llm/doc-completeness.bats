@@ -50,10 +50,6 @@ ensure_infra() {
 }
 
 ensure_robot_account() {
-  if [ -f "$ENV_FILE" ]; then
-    return 0
-  fi
-
   echo "Creating robot account..." >&3
   # Delete existing robot if any
   local EXISTING_ID
@@ -152,6 +148,10 @@ setup_file() {
   # Discover Docker network and internal URLs
   local OIDC_CONTAINER
   OIDC_CONTAINER=$(docker ps --format '{{.Names}}' | grep -m1 'oidc-mock')
+  if [ -z "$OIDC_CONTAINER" ]; then
+    echo "ERROR: oidc-mock container not running" >&2
+    return 1
+  fi
   export DOCKER_NETWORK
   DOCKER_NETWORK=$(docker inspect "$OIDC_CONTAINER" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
   export HARBOR_INTERNAL_URL="http://harbor-nginx:8080"
