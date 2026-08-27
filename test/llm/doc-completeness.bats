@@ -81,10 +81,7 @@ ensure_robot_account() {
   ROBOT_NAME=$(echo "$ROBOT_RESPONSE" | jq -r '.name')
   ROBOT_SECRET=$(echo "$ROBOT_RESPONSE" | jq -r '.secret')
 
-  cat > "$ENV_FILE" <<EOF
-HARBOR_ROBOT_NAME=${ROBOT_NAME}
-HARBOR_ROBOT_SECRET=${ROBOT_SECRET}
-EOF
+  printf "HARBOR_ROBOT_NAME='%s'\nHARBOR_ROBOT_SECRET='%s'\n" "$ROBOT_NAME" "$ROBOT_SECRET" > "$ENV_FILE"
 }
 
 ensure_test_project() {
