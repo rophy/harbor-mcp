@@ -74,11 +74,17 @@ opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
 | `SERVER_PORT` | no | Listen port (default: `8080`) |
 | `DATA_DIR` | no | Directory for SQLite database (default: `/data`) |
 | `OAUTH_SIGNING_KEY` | no | PEM-encoded RSA private key for JWT signing (auto-generated if unset) |
-| `OAUTH_UPSTREAM_EXTERNAL_URL` | no | Browser-reachable URL for upstream IDP if different from issuer |
+| `OAUTH_UPSTREAM_EXTERNAL_URL` | no | Browser-reachable URL for upstream IDP (see below) |
+
+### OAUTH_UPSTREAM_EXTERNAL_URL
+
+Set this when the OIDC issuer URL is not reachable from the user's browser — typically in Docker/Kubernetes where the issuer advertises an internal hostname (e.g., `http://keycloak:8080`). harbor-mcp uses the issuer URL for server-side token exchange, and rewrites the browser redirect to use the external URL instead.
+
+Example: issuer is `http://keycloak:8080` (internal), external URL is `https://keycloak.example.com`.
 
 ### Harbor Robot Account
 
-Create a system-level robot account with read-only permissions:
+Create a system-level robot account with read-only permissions. The API returns the full robot name (prefixed with `robot$`) and a generated secret — use those as `HARBOR_ROBOT_NAME` and `HARBOR_ROBOT_SECRET`.
 
 ```bash
 curl -u admin:Harbor12345 -X POST https://harbor.example.com/api/v2.0/robots \
@@ -101,6 +107,8 @@ curl -u admin:Harbor12345 -X POST https://harbor.example.com/api/v2.0/robots \
     }]
   }'
 ```
+
+The response contains `{"name": "robot$mcp-reader", "secret": "..."}`. Use the full `robot$mcp-reader` name as `HARBOR_ROBOT_NAME`.
 
 ## Development
 
