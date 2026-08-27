@@ -44,6 +44,8 @@ volumes:
   harbor-mcp-data:
 ```
 
+The container runs the `serve` subcommand by default. Use `docker run <image> help` to view the full documentation.
+
 The `/data` volume stores the SQLite database containing registered OAuth clients and authorization state. Without a persistent volume, all client registrations and tokens are lost on container restart — MCP clients will need to re-register and re-authenticate.
 
 **Docker networking:** harbor-mcp must be able to reach both the Harbor API (`HARBOR_URL`) and the OIDC provider's token/JWKS endpoints (from the OIDC discovery document).
@@ -125,8 +127,10 @@ MCP clients normally handle the OAuth flow with a browser. For headless environm
 
 1. **Discover endpoints:** `GET /.well-known/oauth-authorization-server` returns `registration_endpoint`, `authorization_endpoint`, and `token_endpoint`.
 2. **Register a client:** `POST /register` with `{"redirect_uris": ["http://localhost:0/callback"], "client_name": "my-client"}`. Returns `client_id`.
-3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&nonce=<nonce>&scope=harbor:read`. This redirects to the upstream OIDC login page. Complete authentication and capture the `code` from the final redirect.
+3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&nonce=<random>&scope=harbor:read`. The `nonce` can be any random string. This redirects to the upstream OIDC login page. Complete authentication and capture the `code` from the final redirect.
 4. **Exchange code for token:** `POST /token` with `grant_type=authorization_code&code=<code>&redirect_uri=<uri>&client_id=<id>&code_verifier=<verifier>`. Returns an access token.
+
+**Important:** The authorize flow uses a server-side session. You must maintain cookies (e.g. `curl -b cookiejar -c cookiejar`) across the entire authorize → OIDC login → callback chain. If `OAUTH_UPSTREAM_EXTERNAL_URL` is set, the OIDC redirect will use that URL — in headless flows, follow the redirect yourself to the external URL.
 
 ## Development
 
