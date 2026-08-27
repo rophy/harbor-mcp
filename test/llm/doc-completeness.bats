@@ -2,24 +2,20 @@
 
 # LLM doc-completeness test for harbor-mcp.
 #
-# An AI agent is given only the harbor-mcp binary and dependency
-# endpoints (Harbor, OIDC). It must read the help output to figure
-# out how to configure, deploy, and use harbor-mcp.
-# The test independently verifies the results — it never trusts the
-# AI's self-report.
+# An AI agent is given the harbor-mcp binary and dependency endpoints.
+# It must read the help output to figure out how to configure, deploy,
+# and use harbor-mcp. The test independently verifies the results —
+# it never trusts the AI's self-report.
 #
 # Requires:
 #   - E2E environment running (cd e2e && ./setup.sh)
-#     (provides Harbor at :8880 and OIDC mock at :28090)
+#     (provides Harbor at :8880, OIDC mock at :28090, robot account)
 #   - claude CLI with API key
-#   - harbor-mcp binary built
 #   - curl, jq
 #
 # Run: bats test/llm/doc-completeness.bats
 
 HARBOR_URL="${HARBOR_URL:-http://localhost:8880}"
-HARBOR_ADMIN_USER="${HARBOR_ADMIN_USER:-admin}"
-HARBOR_ADMIN_PASS="${HARBOR_ADMIN_PASS:-Harbor12345}"
 OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-http://localhost:28090}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-harbor-mcp}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-test-secret}"
@@ -43,13 +39,19 @@ setup_file() {
   curl -sf "${OIDC_ISSUER_URL}/.well-known/openid-configuration" > /dev/null 2>&1 \
     || skip "OIDC provider not running at ${OIDC_ISSUER_URL}"
 
+  # Read robot credentials from e2e .env (created by setup.sh)
+  local ENV_FILE="${BATS_TEST_DIRNAME}/../../e2e/.env"
+  [ -f "$ENV_FILE" ] || skip "e2e/.env not found — run 'cd e2e && ./setup.sh' first"
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  export HARBOR_ROBOT_NAME HARBOR_ROBOT_SECRET
+
   # Build the binary
   export BINARY="${BATS_TEST_DIRNAME}/../../harbor-mcp"
   go build -o "${BINARY}" ./cmd/harbor-mcp/
 }
 
 teardown_file() {
-  # Kill any harbor-mcp process the AI may have started
   pkill -f "harbor-mcp serve" 2>/dev/null || true
 }
 
@@ -64,37 +66,40 @@ You have the following infrastructure already running:
 
   Harbor registry:
     URL: ${HARBOR_URL}
-    Admin credentials: ${HARBOR_ADMIN_USER} / ${HARBOR_ADMIN_PASS}
+    Robot account: ${HARBOR_ROBOT_NAME} / ${HARBOR_ROBOT_SECRET}
 
   OIDC provider:
     Issuer URL: ${OIDC_ISSUER_URL}
     Client ID: ${OIDC_CLIENT_ID}
     Client secret: ${OIDC_CLIENT_SECRET}
-    (auto-approves all auth requests, no login page)
+
+  OIDC mock login (no human involved):
+    The OIDC authorize endpoint returns an HTML user-picker page.
+    To log in programmatically, POST to ${OIDC_ISSUER_URL}/authorize/callback
+    with form fields: sub=alice, client_id, redirect_uri, state, nonce
+    (same values from the authorize URL query params).
+    It returns a 302 redirect with the authorization code.
 
 Your task:
 1. Run the binary to read its documentation
-2. Create a Harbor robot account for harbor-mcp (following the docs)
-3. Configure and start harbor-mcp on port 18080 (background process)
-4. Verify it is running by checking its OAuth discovery endpoint
-5. Connect to harbor-mcp as an MCP client:
+2. Configure and start harbor-mcp on port 18080 (background process)
+3. Verify it is running by checking its OAuth discovery endpoint
+4. Connect to harbor-mcp as an MCP client:
    a. Register a dynamic OAuth client
    b. Complete the OAuth flow to get an access token
    c. Call the 'list_projects' tool
    d. Call the 'list_repositories' tool for the 'library' project
-6. Write results to ${RESULT_FILE} as JSON:
+5. Write results to ${RESULT_FILE} as JSON:
    {
      "list_projects": <raw tool result>,
      "list_repositories": <raw tool result>
    }
 
 Rules:
-- Figure out EVERYTHING from the binary's help output
+- Figure out configuration from the binary's help output ONLY
 - Do NOT read any source code, test files, or docker-compose files
-- Do NOT read any files in this repository except the binary itself
+- Do NOT read any files in this repository except the binary output
 - If documentation is unclear or missing information, note gaps in ${GAPS_FILE}
-- The OIDC provider's authorize endpoint auto-redirects (no login page)
-  so follow redirects manually with curl to capture auth codes
 - Use SERVER_BASE_URL=http://localhost:18080 when configuring harbor-mcp
 PROMPT_EOF
 )"
