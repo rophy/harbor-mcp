@@ -6,10 +6,11 @@ import (
 )
 
 type Limiter struct {
-	rpm   int
-	burst int
-	mu    sync.Mutex
-	users map[string]*window
+	rpm          int
+	burst        int
+	mu           sync.Mutex
+	users        map[string]*window
+	sweepCounter int
 }
 
 type window struct {
@@ -32,13 +33,25 @@ func (l *Limiter) AllowAt(key string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	cutoff := now.Add(-time.Minute)
+
+	// Evict inactive users every 1000 calls
+	l.sweepCounter++
+	if l.sweepCounter >= 1000 {
+		l.sweepCounter = 0
+		for k, w := range l.users {
+			if len(w.timestamps) == 0 || w.timestamps[len(w.timestamps)-1].Before(cutoff) {
+				delete(l.users, k)
+			}
+		}
+	}
+
 	w, ok := l.users[key]
 	if !ok {
 		w = &window{}
 		l.users[key] = w
 	}
 
-	cutoff := now.Add(-time.Minute)
 	start := 0
 	for start < len(w.timestamps) && w.timestamps[start].Before(cutoff) {
 		start++

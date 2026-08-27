@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	harbormcp "github.com/rophy/harbor-mcp"
@@ -108,18 +109,23 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Handler: httpMux,
 	}
 
+	shutdownDone := make(chan struct{})
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		sig := <-sigCh
 		log.Printf("received %v, shutting down", sig)
-		srv.Shutdown(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+		close(shutdownDone)
 	}()
 
 	log.Printf("harbor-mcp listening on %s", srv.Addr)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}
+	<-shutdownDone
 	return nil
 }
 

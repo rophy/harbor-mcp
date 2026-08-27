@@ -13,8 +13,7 @@ func Middleware(limiter *Limiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := auth.SubjectFromContext(r.Context())
 		if key == "" {
-			next.ServeHTTP(w, r)
-			return
+			key = "anonymous"
 		}
 
 		if limiter.Allow(key) {

@@ -24,12 +24,15 @@ e2e-test: ## Run e2e tests with coverage instrumentation
 		sleep 1; \
 	done
 	@echo "==> Running e2e tests..."
-	COVER=true go test -tags e2e -count=1 ./e2e/ || true
-	@echo "==> Stopping harbor-mcp to flush coverage..."
-	cd e2e && docker compose stop harbor-mcp
-	@echo ""
-	@echo "=== E2E Coverage ==="
-	@go tool covdata percent -i=e2e/coverdata
-	@echo ""
-	@echo "==> Restarting harbor-mcp without coverage..."
-	cd e2e && docker compose up -d --no-deps --build --force-recreate harbor-mcp
+	@COVER=true go test -tags e2e -count=1 ./e2e/; \
+	TEST_EXIT=$$?; \
+	echo ""; \
+	echo "==> Stopping harbor-mcp to flush coverage..."; \
+	cd e2e && docker compose stop harbor-mcp; \
+	echo ""; \
+	echo "=== E2E Coverage ==="; \
+	cd .. && go tool covdata percent -i=e2e/coverdata; \
+	echo ""; \
+	echo "==> Restarting harbor-mcp without coverage..."; \
+	cd e2e && docker compose up -d --no-deps --build --force-recreate harbor-mcp; \
+	exit $$TEST_EXIT

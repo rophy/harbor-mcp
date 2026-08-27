@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -52,6 +53,20 @@ func TestAllow_PerUserIsolation(t *testing.T) {
 	require.True(t, l.AllowAt("alice", now))
 	require.True(t, l.AllowAt("bob", now))
 	assert.False(t, l.AllowAt("alice", now), "alice's second request should be rejected")
+}
+
+func TestAllow_EvictsInactiveUsers(t *testing.T) {
+	l := New(1000, 0)
+	now := time.Now()
+	for i := 0; i < 999; i++ {
+		l.AllowAt(fmt.Sprintf("user-%d", i), now)
+	}
+	assert.Equal(t, 999, len(l.users))
+
+	later := now.Add(2 * time.Minute)
+	// The 1000th call triggers the sweep; all previous users are expired
+	l.AllowAt("active", later)
+	assert.Equal(t, 1, len(l.users), "inactive users should be evicted")
 }
 
 func TestRPM(t *testing.T) {

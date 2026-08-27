@@ -55,18 +55,19 @@ func TestMiddleware_Rejected(t *testing.T) {
 	assert.Equal(t, "rate_limit_exceeded", body["error"])
 }
 
-func TestMiddleware_NoSubject(t *testing.T) {
+func TestMiddleware_NoSubject_UsesAnonymousKey(t *testing.T) {
 	l := New(1, 0)
-	called := false
 	handler := Middleware(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest("POST", "/mcp", nil)
+
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-
-	assert.True(t, called, "handler should be called when no subject in context")
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusTooManyRequests, rec.Code, "anonymous requests should be rate limited")
 }
