@@ -3,13 +3,14 @@
 # LLM doc-completeness test for harbor-mcp.
 #
 # An AI agent is given the harbor-mcp binary and dependency endpoints.
-# It must read the help output to figure out how to configure and
-# deploy harbor-mcp. The test independently verifies the server is
-# running — it never trusts the AI's self-report.
+# It must read the help output to figure out how to configure, deploy,
+# and connect an MCP client (opencode). The test independently verifies
+# the results — it never trusts the AI's self-report.
 #
 # Requires:
 #   - Docker (for Harbor + OIDC mock)
 #   - claude CLI with API key
+#   - opencode CLI
 #   - curl, jq
 #
 # Run: bats test/llm/doc-completeness.bats
@@ -21,11 +22,13 @@ OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-http://localhost:28090}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-harbor-mcp}"
 OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-test-secret}"
 
+OPENCODE_CONFIG="${HOME}/.config/opencode/opencode.jsonc"
+OPENCODE_AUTH="${HOME}/.local/share/opencode/mcp-auth.json"
+
 E2E_DIR="${BATS_TEST_DIRNAME}/../../e2e"
 ENV_FILE="${E2E_DIR}/.env"
 
 ensure_infra() {
-  # Start Harbor + OIDC mock if not already running (skip harbor-mcp)
   if ! curl -sf "${HARBOR_URL}/api/v2.0/ping" > /dev/null 2>&1; then
     echo "Starting Harbor + OIDC mock..." >&3
     docker compose -f "${E2E_DIR}/docker-compose.yml" up -d \
@@ -45,7 +48,6 @@ ensure_infra() {
 }
 
 ensure_robot_account() {
-  # Create robot account if .env doesn't exist
   if [ -f "$ENV_FILE" ]; then
     return 0
   fi
@@ -84,11 +86,29 @@ EOF
 }
 
 ensure_test_project() {
-  # Create library project if it doesn't exist
   curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
     -H "Content-Type: application/json" \
     -X POST "${HARBOR_URL}/api/v2.0/projects" \
     -d '{"project_name":"library","public":true}' > /dev/null 2>&1 || true
+}
+
+clean_opencode() {
+  # Remove harbor-mcp from opencode config
+  if [ -f "$OPENCODE_CONFIG" ]; then
+    local tmp
+    tmp=$(jq 'del(.mcp["harbor-mcp"])' "$OPENCODE_CONFIG" 2>/dev/null)
+    if [ -n "$tmp" ]; then
+      echo "$tmp" > "$OPENCODE_CONFIG"
+    fi
+  fi
+  # Remove harbor-mcp auth tokens
+  if [ -f "$OPENCODE_AUTH" ]; then
+    local tmp
+    tmp=$(jq 'del(.["harbor-mcp"])' "$OPENCODE_AUTH" 2>/dev/null)
+    if [ -n "$tmp" ]; then
+      echo "$tmp" > "$OPENCODE_AUTH"
+    fi
+  fi
 }
 
 setup_file() {
@@ -101,12 +121,14 @@ setup_file() {
   export CLAUDE_LOG="${LOG_DIR}/claude-${TIMESTAMP}.log"
 
   command -v claude >/dev/null 2>&1 || skip "claude CLI not found"
+  command -v opencode >/dev/null 2>&1 || skip "opencode CLI not found"
   command -v jq >/dev/null 2>&1 || skip "jq not found"
   command -v docker >/dev/null 2>&1 || skip "docker not found"
 
   ensure_infra
   ensure_test_project
   ensure_robot_account
+  clean_opencode
 
   # shellcheck disable=SC1090
   source "$ENV_FILE"
@@ -121,7 +143,7 @@ teardown_file() {
   pkill -f "harbor-mcp serve" 2>/dev/null || true
 }
 
-@test "AI deploys harbor-mcp from help output alone" {
+@test "AI deploys harbor-mcp and connects opencode" {
   local PROMPT
   PROMPT="$(cat <<PROMPT_EOF
 You have a binary at: ${BINARY}
@@ -149,11 +171,30 @@ You have the following infrastructure already running:
 Your task:
 1. Run the binary to read its documentation
 2. Configure and start harbor-mcp on port 18080 (background process)
-3. Verify it is running and working end-to-end (complete the OAuth flow
-   and confirm you can reach the MCP endpoint with a valid token)
+3. Verify it is running (check the OAuth discovery endpoint)
+4. Add harbor-mcp to opencode using: opencode mcp add
+5. Authenticate opencode with harbor-mcp. Since there is no browser,
+   you cannot use 'opencode mcp auth'. Instead:
+   a. Complete the OAuth flow yourself (register client, authorize, exchange code for token)
+   b. Write the token directly to ~/.local/share/opencode/mcp-auth.json:
+      {
+        "harbor-mcp": {
+          "tokens": {
+            "accessToken": "<your token>",
+            "expiresAt": <unix timestamp>,
+            "scope": "harbor:read"
+          },
+          "clientInfo": {
+            "clientId": "<your client id>"
+          },
+          "serverUrl": "http://localhost:18080/mcp"
+        }
+      }
+6. Verify opencode can connect: run 'timeout 10 opencode mcp list'
+   and confirm harbor-mcp shows as connected
 
 Rules:
-- Figure out configuration from the binary's help output ONLY
+- Figure out harbor-mcp configuration from the binary's help output ONLY
 - Do NOT read any source code, test files, or docker-compose files
 - Do NOT read any files in this repository except the binary output
 - If documentation is unclear or missing information, note gaps in ${GAPS_FILE}
@@ -163,7 +204,7 @@ PROMPT_EOF
 
   claude -p "$PROMPT" \
     --dangerously-skip-permissions \
-    --max-budget-usd 3 \
+    --max-budget-usd 5 \
     --allowedTools "Bash Read Write" \
     2>&1 | tee "${CLAUDE_LOG}"
 }
@@ -183,17 +224,25 @@ PROMPT_EOF
   echo "$output" | jq -e '.authorization_endpoint | startswith("http://localhost:18080")' > /dev/null
 }
 
-@test "dynamic client registration works" {
-  run curl -sf -X POST http://localhost:18080/register \
-    -H "Content-Type: application/json" \
-    -d '{"redirect_uris":["http://localhost:19999/callback"]}'
+@test "opencode has harbor-mcp configured" {
+  [ -f "$OPENCODE_CONFIG" ]
+  run jq -e '.mcp["harbor-mcp"].url' "$OPENCODE_CONFIG"
   [ "$status" -eq 0 ]
-  echo "$output" | jq -e '.client_id' > /dev/null
+  echo "$output" | grep -q "18080"
 }
 
-@test "MCP endpoint is protected" {
-  run curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/mcp
-  [ "$output" = "401" ]
+@test "opencode has valid auth token" {
+  [ -f "$OPENCODE_AUTH" ]
+  run jq -e '.["harbor-mcp"].tokens.accessToken' "$OPENCODE_AUTH"
+  [ "$status" -eq 0 ]
+  [ "$output" != "null" ]
+}
+
+@test "opencode can connect to harbor-mcp" {
+  run timeout 10 opencode mcp list
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "harbor-mcp"
+  echo "$output" | grep -q "connected"
 }
 
 @test "documentation gaps report" {
