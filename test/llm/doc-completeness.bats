@@ -125,6 +125,12 @@ setup_file() {
   command -v jq >/dev/null 2>&1 || skip "jq not found"
   command -v docker >/dev/null 2>&1 || skip "docker not found"
 
+  # Ensure port 18080 is free
+  if curl -sf http://localhost:18080/ > /dev/null 2>&1; then
+    echo "ERROR: port 18080 is already in use — kill the process first" >&2
+    return 1
+  fi
+
   ensure_infra
   ensure_test_project
   ensure_robot_account
@@ -141,6 +147,8 @@ setup_file() {
 
 teardown_file() {
   pkill -f "harbor-mcp serve" 2>/dev/null || true
+  # Kill anything on port 18080 in case the AI started it as a different user
+  fuser -k 18080/tcp 2>/dev/null || true
 }
 
 @test "AI deploys harbor-mcp and connects opencode" {
