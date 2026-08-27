@@ -149,6 +149,14 @@ setup_file() {
   source "$ENV_FILE"
   export HARBOR_ROBOT_NAME HARBOR_ROBOT_SECRET
 
+  # Discover Docker network and internal URLs
+  local OIDC_CONTAINER
+  OIDC_CONTAINER=$(docker ps --format '{{.Names}}' | grep -m1 'oidc-mock')
+  export DOCKER_NETWORK
+  DOCKER_NETWORK=$(docker inspect "$OIDC_CONTAINER" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+  export HARBOR_INTERNAL_URL="http://harbor-nginx:8080"
+  export OIDC_INTERNAL_URL="http://oidc-mock:8080"
+
   # Build the container image
   local REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
   echo "Building container image ${IMAGE_NAME}..." >&3
@@ -172,12 +180,18 @@ You have the following infrastructure already running on the host:
 
   Harbor registry:
     URL: __HARBOR_URL__
+    Internal URL (from Docker network): __HARBOR_INTERNAL_URL__
     Robot account: __HARBOR_ROBOT_NAME__ / __HARBOR_ROBOT_SECRET__
 
   OIDC provider:
     Issuer URL: __OIDC_ISSUER_URL__
+    Internal URL (from Docker network): __OIDC_INTERNAL_URL__
     Client ID: __OIDC_CLIENT_ID__
     Client secret: __OIDC_CLIENT_SECRET__
+
+  Docker network: __DOCKER_NETWORK__
+    Harbor and OIDC are on this network. To connect a container:
+    docker run --network __DOCKER_NETWORK__ ...
 
   OIDC mock login (no human involved):
     The OIDC authorize endpoint shows a user-picker HTML page.
@@ -212,9 +226,9 @@ Your task:
    and confirm harbor-mcp shows as connected
 
 Important:
-- The container needs --network host to reach Harbor and the OIDC provider
-  on localhost ports, OR use host.docker.internal
 - Use SERVER_BASE_URL=http://localhost:18080 when configuring harbor-mcp
+- The host URLs (localhost) are reachable from your shell
+- The internal URLs are reachable from Docker containers on the same network
 
 Rules:
 - Figure out harbor-mcp configuration from the container's help output ONLY
@@ -234,6 +248,9 @@ PROMPT_EOF
   PROMPT="${PROMPT//__OIDC_ISSUER_URL__/${OIDC_ISSUER_URL}}"
   PROMPT="${PROMPT//__OIDC_CLIENT_ID__/${OIDC_CLIENT_ID}}"
   PROMPT="${PROMPT//__OIDC_CLIENT_SECRET__/${OIDC_CLIENT_SECRET}}"
+  PROMPT="${PROMPT//__DOCKER_NETWORK__/${DOCKER_NETWORK}}"
+  PROMPT="${PROMPT//__HARBOR_INTERNAL_URL__/${HARBOR_INTERNAL_URL}}"
+  PROMPT="${PROMPT//__OIDC_INTERNAL_URL__/${OIDC_INTERNAL_URL}}"
   PROMPT="${PROMPT//__GAPS_FILE__/${GAPS_FILE}}"
 
   claude -p "$PROMPT" \
