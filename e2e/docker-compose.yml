@@ -188,6 +188,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        COVER: ${COVER:-false}
     depends_on:
       harbor-nginx:
         condition: service_healthy
@@ -208,8 +210,10 @@ services:
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-60}
       RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-20}
+      GOCOVERDIR: /coverdata
     volumes:
       - harbor-mcp-data:/data
+      - ./coverdata:/coverdata
 
 volumes:
   harbor-db-data:

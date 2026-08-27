@@ -34,6 +34,7 @@ test/llm/logs/
 
 # e2e coverage data
 e2e/covdata/
+e2e/coverdata/
 e2e/coverage-e2e.*
 e2e/test-output.log
 

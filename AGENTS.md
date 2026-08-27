@@ -7,7 +7,7 @@ After any code change:
 2. Run unit tests: `make unit-test`
 
 Before creating a PR:
-3. Run e2e tests: `make e2e-test`
+3. Run e2e tests: `make e2e-test` (requires docker-compose stack from `e2e/setup.sh`)
 
 All test failures must be fixed. There is no such thing as a "pre-existing error" — if a test fails, fix it before proceeding.
 

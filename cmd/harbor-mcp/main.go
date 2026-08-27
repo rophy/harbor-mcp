@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -9,7 +10,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	harbormcp "github.com/rophy/harbor-mcp"
@@ -100,9 +103,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 	oauthHandlers.RegisterRoutes(httpMux)
 	httpMux.Handle("/mcp", auth.RequireBearerToken(provider, mcpChain))
 
-	addr := fmt.Sprintf(":%d", cfg.ServerPort)
-	log.Printf("harbor-mcp listening on %s", addr)
-	return http.ListenAndServe(addr, httpMux)
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.ServerPort),
+		Handler: httpMux,
+	}
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+		sig := <-sigCh
+		log.Printf("received %v, shutting down", sig)
+		srv.Shutdown(context.Background())
+	}()
+
+	log.Printf("harbor-mcp listening on %s", srv.Addr)
+	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 func loadOrGenerateKey(pemData string) (*rsa.PrivateKey, error) {
