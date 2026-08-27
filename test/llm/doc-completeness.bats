@@ -72,10 +72,18 @@ You have the following infrastructure already running:
     Client ID: ${OIDC_CLIENT_ID}
     Client secret: ${OIDC_CLIENT_SECRET}
 
+  OIDC mock login (no human involved):
+    The OIDC authorize endpoint shows a user-picker HTML page.
+    To log in programmatically, POST to ${OIDC_ISSUER_URL}/authorize/callback
+    with form-encoded fields: sub=alice, client_id, redirect_uri, state, nonce
+    (use the same values from the authorize URL query params).
+    It returns a 302 redirect with the authorization code.
+
 Your task:
 1. Run the binary to read its documentation
 2. Configure and start harbor-mcp on port 18080 (background process)
-3. Verify it is running and healthy
+3. Verify it is running and working end-to-end (complete the OAuth flow
+   and confirm you can reach the MCP endpoint with a valid token)
 
 Rules:
 - Figure out configuration from the binary's help output ONLY
@@ -106,6 +114,14 @@ PROMPT_EOF
   run curl -sf http://localhost:18080/.well-known/oauth-authorization-server
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.authorization_endpoint | startswith("http://localhost:18080")' > /dev/null
+}
+
+@test "dynamic client registration works" {
+  run curl -sf -X POST http://localhost:18080/auth/register \
+    -H "Content-Type: application/json" \
+    -d '{"redirect_uris":["http://localhost:19999/callback"]}'
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.client_id' > /dev/null
 }
 
 @test "MCP endpoint is protected" {
