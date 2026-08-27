@@ -173,7 +173,7 @@ func (s *DefaultSuite) TestMCPTool_ListRepositories() {
 func (s *DefaultSuite) TestMCPTool_ListArtifacts() {
 	result := s.session.callTool(s.T(), "list_artifacts", map[string]any{
 		"project_name":    "library",
-		"repository_name": "test",
+		"repository_name": "test-image",
 	})
 	text := getTextContent(s.T(), result)
 
@@ -188,7 +188,7 @@ func (s *DefaultSuite) TestMCPTool_ListArtifacts() {
 func (s *DefaultSuite) TestMCPTool_GetArtifact() {
 	result := s.session.callTool(s.T(), "get_artifact", map[string]any{
 		"project_name":    "library",
-		"repository_name": "test",
+		"repository_name": "test-image",
 		"reference":       "v1",
 	})
 	text := getTextContent(s.T(), result)
@@ -208,7 +208,7 @@ func (s *DefaultSuite) TestMCPTool_GetArtifact() {
 func (s *DefaultSuite) TestMCPTool_GetVulnerabilities() {
 	result := s.session.callTool(s.T(), "get_vulnerabilities", map[string]any{
 		"project_name":    "library",
-		"repository_name": "test",
+		"repository_name": "test-image",
 		"reference":       "v1",
 	})
 
