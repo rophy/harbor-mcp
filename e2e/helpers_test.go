@@ -53,6 +53,11 @@ func init() {
 	loadEnvFile()
 }
 
+func testDir() string {
+	_, thisFile, _, _ := runtime.Caller(0)
+	return filepath.Dir(thisFile)
+}
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

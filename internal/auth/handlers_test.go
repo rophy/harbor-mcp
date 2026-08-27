@@ -3,6 +3,7 @@ package auth_test
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,12 @@ import (
 
 	"github.com/rophy/harbor-mcp/internal/auth"
 )
+
+func fakeIDToken(sub string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"sub":%q,"iss":"test"}`, sub)))
+	return header + "." + payload + "."
+}
 
 type testEnv struct {
 	srv *httptest.Server
@@ -47,7 +54,7 @@ func setupOAuthServerEnv(t *testing.T) *testEnv {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{
 				"access_token": "upstream-access-token",
-				"id_token":     "upstream-id-token",
+				"id_token":     fakeIDToken("alice"),
 				"token_type":   "Bearer",
 			})
 		}
@@ -506,6 +513,117 @@ func TestCallbackEndpoint_HappyPath(t *testing.T) {
 	}
 	if tokenResult["token_type"] != "bearer" {
 		t.Errorf("token_type = %v, want bearer", tokenResult["token_type"])
+	}
+}
+
+func TestRequireBearerToken_SetsSubjectInContext(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	store := auth.NewMemoryStore()
+	provider := auth.NewOAuthProvider(store, key)
+
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			json.NewEncoder(w).Encode(map[string]string{
+				"authorization_endpoint": "https://idp.example.com/authorize",
+				"token_endpoint":         "http://" + r.Host + "/token",
+			})
+		case "/token":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{
+				"access_token": "upstream-access-token",
+				"id_token":     fakeIDToken("alice"),
+				"token_type":   "Bearer",
+			})
+		}
+	}))
+	t.Cleanup(idp.Close)
+
+	upstream, _ := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "")
+	mux := http.NewServeMux()
+	handlers := auth.NewOAuthHandlers(provider, store, upstream, "http://localhost:8080")
+	handlers.RegisterRoutes(mux)
+
+	var capturedSubject string
+	protectedHandler := auth.RequireBearerToken(provider, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedSubject = auth.SubjectFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+	mux.Handle("/protected", protectedHandler)
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	noFollow := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	clientID := registerAndGetClientID(t, srv.URL)
+	redirectURI := "http://localhost:9999/callback"
+	codeVerifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	codeChallenge := "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+	authorizeURL := fmt.Sprintf("%s/authorize?client_id=%s&response_type=code&redirect_uri=%s&code_challenge=%s&code_challenge_method=S256&state=test-state-value",
+		srv.URL, clientID, url.QueryEscape(redirectURI), codeChallenge)
+	resp, err := noFollow.Get(authorizeURL)
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("authorize: status %d, want 302 or 303", resp.StatusCode)
+	}
+
+	location, _ := url.Parse(resp.Header.Get("Location"))
+	upstreamState := location.Query().Get("state")
+	if upstreamState == "" {
+		t.Fatalf("no state in upstream redirect: %s", resp.Header.Get("Location"))
+	}
+
+	callbackURL := fmt.Sprintf("%s/auth/callback?state=%s&code=mock-code", srv.URL, upstreamState)
+	resp, err = noFollow.Get(callbackURL)
+	if err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("callback: status %d, body: %s", resp.StatusCode, body)
+	}
+
+	callbackRedirect, _ := url.Parse(resp.Header.Get("Location"))
+	authCode := callbackRedirect.Query().Get("code")
+
+	tokenResp, err := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {authCode},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {clientID},
+		"code_verifier": {codeVerifier},
+	})
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	defer tokenResp.Body.Close()
+
+	var tokenResult map[string]any
+	json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
+	accessToken := tokenResult["access_token"].(string)
+
+	// Use the token against the protected endpoint
+	req, _ := http.NewRequest("GET", srv.URL+"/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("protected request: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("protected status = %d, want 200", resp.StatusCode)
+	}
+	if capturedSubject != "alice" {
+		t.Errorf("subject = %q, want alice", capturedSubject)
 	}
 }
 

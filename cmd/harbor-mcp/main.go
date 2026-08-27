@@ -16,6 +16,7 @@ import (
 	"github.com/rophy/harbor-mcp/internal/auth"
 	"github.com/rophy/harbor-mcp/internal/config"
 	"github.com/rophy/harbor-mcp/internal/harbor"
+	"github.com/rophy/harbor-mcp/internal/ratelimit"
 	"github.com/rophy/harbor-mcp/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -88,9 +89,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 		&mcp.StreamableHTTPOptions{},
 	)
 
+	var mcpChain http.Handler = mcpHandler
+	if cfg.RateLimitEnabled {
+		limiter := ratelimit.New(cfg.RateLimitRPM, cfg.RateLimitBurst)
+		mcpChain = ratelimit.Middleware(limiter, mcpChain)
+		log.Printf("rate limiting enabled: %d rpm, %d burst", cfg.RateLimitRPM, cfg.RateLimitBurst)
+	}
+
 	httpMux := http.NewServeMux()
 	oauthHandlers.RegisterRoutes(httpMux)
-	httpMux.Handle("/mcp", auth.RequireBearerToken(provider, mcpHandler))
+	httpMux.Handle("/mcp", auth.RequireBearerToken(provider, mcpChain))
 
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
 	log.Printf("harbor-mcp listening on %s", addr)

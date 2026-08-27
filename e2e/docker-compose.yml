@@ -205,6 +205,9 @@ services:
       OAUTH_UPSTREAM_CLIENT_SECRET: test-secret
       SERVER_BASE_URL: http://localhost:28080
       DATA_DIR: /data
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-60}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-20}
     volumes:
       - harbor-mcp-data:/data
 

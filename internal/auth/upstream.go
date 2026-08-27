@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -104,4 +105,25 @@ func (u *UpstreamOIDC) ExchangeCode(ctx context.Context, code, callbackURL strin
 		return nil, fmt.Errorf("decoding token response: %w", err)
 	}
 	return &tokens, nil
+}
+
+func (t *UpstreamTokens) Subject() string {
+	if t.IDToken == "" {
+		return ""
+	}
+	parts := strings.SplitN(t.IDToken, ".", 3)
+	if len(parts) < 2 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return ""
+	}
+	return claims.Sub
 }

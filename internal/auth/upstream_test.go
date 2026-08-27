@@ -2,7 +2,9 @@ package auth_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -179,5 +181,34 @@ func TestUpstreamOIDC_ExchangeCode_Unreachable(t *testing.T) {
 	_, err := upstream.ExchangeCode(context.Background(), "auth-code", "http://localhost:8080/auth/callback")
 	if err == nil {
 		t.Fatal("expected error for unreachable token endpoint")
+	}
+}
+
+func fakeJWT(sub string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"sub":%q}`, sub)))
+	return header + "." + payload + "."
+}
+
+func TestUpstreamTokens_Subject(t *testing.T) {
+	tests := []struct {
+		name    string
+		idToken string
+		want    string
+	}{
+		{"valid JWT", fakeJWT("alice"), "alice"},
+		{"empty id_token", "", ""},
+		{"not a JWT", "not-a-jwt", ""},
+		{"invalid base64 payload", "header.!!!invalid!!!.sig", ""},
+		{"invalid JSON payload", "header." + base64.RawURLEncoding.EncodeToString([]byte("not json")) + ".sig", ""},
+		{"missing sub claim", "header." + base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"test"}`)) + ".sig", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokens := &auth.UpstreamTokens{IDToken: tt.idToken}
+			if got := tokens.Subject(); got != tt.want {
+				t.Errorf("Subject() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

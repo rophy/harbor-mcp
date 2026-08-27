@@ -18,6 +18,9 @@ type Config struct {
 	DataDir                      string
 	ServerBaseURL                string
 	ServerPort                   int
+	RateLimitEnabled             bool
+	RateLimitRPM                 int
+	RateLimitBurst               int
 }
 
 func Load() (*Config, error) {
@@ -48,6 +51,24 @@ func Load() (*Config, error) {
 	cfg.DataDir = os.Getenv("DATA_DIR")
 	if cfg.DataDir == "" {
 		cfg.DataDir = "/data"
+	}
+
+	cfg.RateLimitEnabled = os.Getenv("RATE_LIMIT_ENABLED") == "true" || os.Getenv("RATE_LIMIT_ENABLED") == "1"
+	cfg.RateLimitRPM = 60
+	if v := os.Getenv("RATE_LIMIT_RPM"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("RATE_LIMIT_RPM is not a valid integer: %w", err)
+		}
+		cfg.RateLimitRPM = n
+	}
+	cfg.RateLimitBurst = 20
+	if v := os.Getenv("RATE_LIMIT_BURST"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("RATE_LIMIT_BURST is not a valid integer: %w", err)
+		}
+		cfg.RateLimitBurst = n
 	}
 
 	if p := os.Getenv("SERVER_PORT"); p != "" {
