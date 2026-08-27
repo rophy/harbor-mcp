@@ -119,7 +119,7 @@ curl -u admin:Harbor12345 -X POST https://harbor.example.com/api/v2.0/robots \
   }'
 ```
 
-The response contains `{"name": "robot$mcp-reader", "secret": "..."}`. Use the full name including the `robot$` prefix as `HARBOR_ROBOT_NAME`. Harbor always prefixes robot account names with `robot$` — if you created a robot named `mcp-reader`, the username is `robot$mcp-reader`.
+The response contains `{"name": "robot$mcp-reader", "secret": "..."}`. Use the full name including the `robot$` prefix as `HARBOR_ROBOT_NAME`. Harbor always prefixes robot account names with `robot$` — if you created a robot named `mcp-reader`, the login username is `robot$mcp-reader`. If you have a pre-existing robot account, check whether the name already includes the `robot$` prefix and use it as-is.
 
 ## Headless / CI Authentication
 
@@ -130,7 +130,7 @@ MCP clients normally handle the OAuth flow with a browser. For headless environm
 3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&nonce=<random>&scope=harbor:read`. The `nonce` can be any random string. This redirects to the upstream OIDC login page. Complete authentication and capture the `code` from the final redirect.
 4. **Exchange code for token:** `POST /token` with `grant_type=authorization_code&code=<code>&redirect_uri=<uri>&client_id=<id>&code_verifier=<verifier>`. Returns an access token.
 
-**Important:** The authorize flow uses a server-side session. You must maintain cookies (e.g. `curl -b cookiejar -c cookiejar`) across the entire authorize → OIDC login → callback chain. If `OAUTH_UPSTREAM_EXTERNAL_URL` is set, the OIDC redirect will use that URL — in headless flows, follow the redirect yourself to the external URL.
+**Important:** The authorize flow uses a server-side session cookie to track PKCE and state across redirects. You **must** maintain cookies (e.g. `curl -b cookiejar -c cookiejar`) across the entire authorize → OIDC login → callback chain, or the callback will fail silently. If `OAUTH_UPSTREAM_EXTERNAL_URL` is set, harbor-mcp already rewrites the OIDC redirect to use the external URL — just follow redirects normally.
 
 ## Development
 
