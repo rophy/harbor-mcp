@@ -156,25 +156,26 @@ teardown_file() {
 
 @test "AI deploys harbor-mcp and connects opencode" {
   local PROMPT
-  PROMPT="$(cat <<PROMPT_EOF
-You have a container image: ${IMAGE_NAME}
+  # Use quoted heredoc to prevent $ expansion (robot names contain $ like robot$mcp-reader)
+  PROMPT="$(cat <<'PROMPT_EOF'
+You have a container image: __IMAGE_NAME__
 
 Run it to discover what it does and how to configure it.
 
 You have the following infrastructure already running on the host:
 
   Harbor registry:
-    URL: ${HARBOR_URL}
-    Robot account: ${HARBOR_ROBOT_NAME} / ${HARBOR_ROBOT_SECRET}
+    URL: __HARBOR_URL__
+    Robot account: __HARBOR_ROBOT_NAME__ / __HARBOR_ROBOT_SECRET__
 
   OIDC provider:
-    Issuer URL: ${OIDC_ISSUER_URL}
-    Client ID: ${OIDC_CLIENT_ID}
-    Client secret: ${OIDC_CLIENT_SECRET}
+    Issuer URL: __OIDC_ISSUER_URL__
+    Client ID: __OIDC_CLIENT_ID__
+    Client secret: __OIDC_CLIENT_SECRET__
 
   OIDC mock login (no human involved):
     The OIDC authorize endpoint shows a user-picker HTML page.
-    To log in programmatically, POST to ${OIDC_ISSUER_URL}/authorize/callback
+    To log in programmatically, POST to __OIDC_ISSUER_URL__/authorize/callback
     with form-encoded fields: sub=alice, client_id, redirect_uri, state, nonce
     (use the same values from the authorize URL query params).
     It returns a 302 redirect with the authorization code.
@@ -213,12 +214,21 @@ Rules:
 - Figure out harbor-mcp configuration from the container's help output ONLY
 - Do NOT read any source code, test files, or docker-compose files
 - Do NOT read any files in this repository
-- You MUST write ${GAPS_FILE} when done. List every place where the
+- You MUST write __GAPS_FILE__ when done. List every place where the
   documentation was unclear, incomplete, or where you had to guess.
   If the documentation was perfectly clear, write "No gaps found." to
   the file. The file must exist when you finish.
 PROMPT_EOF
 )"
+  # Substitute placeholders (sed with | delimiter since URLs contain /)
+  PROMPT="${PROMPT//__IMAGE_NAME__/${IMAGE_NAME}}"
+  PROMPT="${PROMPT//__HARBOR_URL__/${HARBOR_URL}}"
+  PROMPT="${PROMPT//__HARBOR_ROBOT_NAME__/${HARBOR_ROBOT_NAME}}"
+  PROMPT="${PROMPT//__HARBOR_ROBOT_SECRET__/${HARBOR_ROBOT_SECRET}}"
+  PROMPT="${PROMPT//__OIDC_ISSUER_URL__/${OIDC_ISSUER_URL}}"
+  PROMPT="${PROMPT//__OIDC_CLIENT_ID__/${OIDC_CLIENT_ID}}"
+  PROMPT="${PROMPT//__OIDC_CLIENT_SECRET__/${OIDC_CLIENT_SECRET}}"
+  PROMPT="${PROMPT//__GAPS_FILE__/${GAPS_FILE}}"
 
   claude -p "$PROMPT" \
     --dangerously-skip-permissions \

@@ -75,7 +75,7 @@ opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
 | `HARBOR_ROBOT_NAME` | yes | Robot account username (e.g. `robot$mcp-reader` — see below) |
 | `HARBOR_ROBOT_SECRET` | yes | Robot account secret |
 | `OAUTH_UPSTREAM_ISSUER` | yes | OIDC issuer URL (must serve `/.well-known/openid-configuration`) |
-| `OAUTH_UPSTREAM_CLIENT_ID` | yes | Client ID registered with the upstream IDP |
+| `OAUTH_UPSTREAM_CLIENT_ID` | yes | Client ID registered with the upstream IDP (must allow redirect to `SERVER_BASE_URL/auth/callback`) |
 | `OAUTH_UPSTREAM_CLIENT_SECRET` | yes | Client secret for the upstream IDP |
 | `SERVER_BASE_URL` | yes | Public URL of this server (used in OAuth redirects) |
 | `SERVER_PORT` | no | Listen port (default: `8080`) |
