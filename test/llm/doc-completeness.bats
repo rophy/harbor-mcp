@@ -55,6 +55,15 @@ ensure_robot_account() {
   fi
 
   echo "Creating robot account..." >&3
+  # Delete existing robot if any
+  local EXISTING_ID
+  EXISTING_ID=$(curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
+    "${HARBOR_URL}/api/v2.0/robots" | jq -r '.[] | select(.name=="robot$mcp-reader") | .id')
+  if [ -n "$EXISTING_ID" ]; then
+    curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
+      -X DELETE "${HARBOR_URL}/api/v2.0/robots/${EXISTING_ID}" || true
+  fi
+
   local ROBOT_RESPONSE
   ROBOT_RESPONSE=$(curl -sf -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
     -H "Content-Type: application/json" \
