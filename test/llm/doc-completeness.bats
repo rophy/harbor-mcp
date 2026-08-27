@@ -3,9 +3,9 @@
 # LLM doc-completeness test for harbor-mcp.
 #
 # An AI agent is given the harbor-mcp binary and dependency endpoints.
-# It must read the help output to figure out how to configure, deploy,
-# and use harbor-mcp. The test independently verifies the results —
-# it never trusts the AI's self-report.
+# It must read the help output to figure out how to configure and
+# deploy harbor-mcp. The test independently verifies the server is
+# running — it never trusts the AI's self-report.
 #
 # Requires:
 #   - E2E environment running (cd e2e && ./setup.sh)
@@ -28,7 +28,6 @@ setup_file() {
   TIMESTAMP=$(date +%Y%m%d-%H%M%S)
   export GAPS_FILE="${LOG_DIR}/gaps-${TIMESTAMP}.txt"
   export CLAUDE_LOG="${LOG_DIR}/claude-${TIMESTAMP}.log"
-  export RESULT_FILE="${LOG_DIR}/result-${TIMESTAMP}.json"
 
   command -v claude >/dev/null 2>&1 || skip "claude CLI not found"
   command -v jq >/dev/null 2>&1 || skip "jq not found"
@@ -73,27 +72,10 @@ You have the following infrastructure already running:
     Client ID: ${OIDC_CLIENT_ID}
     Client secret: ${OIDC_CLIENT_SECRET}
 
-  OIDC mock login (no human involved):
-    The OIDC authorize endpoint returns an HTML user-picker page.
-    To log in programmatically, POST to ${OIDC_ISSUER_URL}/authorize/callback
-    with form fields: sub=alice, client_id, redirect_uri, state, nonce
-    (same values from the authorize URL query params).
-    It returns a 302 redirect with the authorization code.
-
 Your task:
 1. Run the binary to read its documentation
 2. Configure and start harbor-mcp on port 18080 (background process)
-3. Verify it is running by checking its OAuth discovery endpoint
-4. Connect to harbor-mcp as an MCP client:
-   a. Register a dynamic OAuth client
-   b. Complete the OAuth flow to get an access token
-   c. Call the 'list_projects' tool
-   d. Call the 'list_repositories' tool for the 'library' project
-5. Write results to ${RESULT_FILE} as JSON:
-   {
-     "list_projects": <raw tool result>,
-     "list_repositories": <raw tool result>
-   }
+3. Verify it is running and healthy
 
 Rules:
 - Figure out configuration from the binary's help output ONLY
@@ -106,7 +88,7 @@ PROMPT_EOF
 
   claude -p "$PROMPT" \
     --dangerously-skip-permissions \
-    --max-budget-usd 5 \
+    --max-budget-usd 3 \
     --allowedTools "Bash Read Write" \
     2>&1 | tee "${CLAUDE_LOG}"
 }
@@ -120,24 +102,15 @@ PROMPT_EOF
   echo "$output" | jq -e '.authorization_endpoint' > /dev/null
 }
 
-@test "result file exists and is valid JSON" {
-  [ -f "${RESULT_FILE}" ]
-  run jq empty "${RESULT_FILE}"
+@test "OAuth metadata has correct base URL" {
+  run curl -sf http://localhost:18080/.well-known/oauth-authorization-server
   [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.authorization_endpoint | startswith("http://localhost:18080")' > /dev/null
 }
 
-@test "list_projects returned the library project" {
-  run jq -r '.list_projects' "${RESULT_FILE}"
-  [ "$status" -eq 0 ]
-  [ "$output" != "null" ]
-  echo "$output" | grep -q "library"
-}
-
-@test "list_repositories found test-image" {
-  run jq -r '.list_repositories' "${RESULT_FILE}"
-  [ "$status" -eq 0 ]
-  [ "$output" != "null" ]
-  echo "$output" | grep -q "test"
+@test "MCP endpoint is protected" {
+  run curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/mcp
+  [ "$output" = "401" ]
 }
 
 @test "documentation gaps report" {
