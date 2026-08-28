@@ -218,6 +218,70 @@ func (s *DefaultSuite) TestMCPTool_GetVulnerabilities() {
 		"get_vulnerabilities should return an error (no scanner)")
 }
 
+func (s *DefaultSuite) TestMCPTool_Search() {
+	result := s.session.callTool(s.T(), "search", map[string]any{"query": "test"})
+	text := getTextContent(s.T(), result)
+
+	var searchResult map[string]any
+	require.NoError(s.T(), json.Unmarshal([]byte(text), &searchResult))
+
+	repos, ok := searchResult["repository"].([]any)
+	require.True(s.T(), ok, "search result should contain 'repository' key")
+	require.NotEmpty(s.T(), repos, "search for 'test' should find repositories")
+
+	found := false
+	for _, r := range repos {
+		repo, _ := r.(map[string]any)
+		repoName, _ := repo["repository_name"].(string)
+		if strings.Contains(repoName, "test") {
+			found = true
+		}
+	}
+	assert.True(s.T(), found, "search should find repository containing 'test'")
+}
+
+func (s *DefaultSuite) TestMCPTool_ListRepositoriesWithQuery() {
+	result := s.session.callTool(s.T(), "list_repositories", map[string]any{
+		"project_name": "library",
+		"query":        "name=~test",
+	})
+	text := getTextContent(s.T(), result)
+
+	var repos []map[string]any
+	require.NoError(s.T(), json.Unmarshal([]byte(text), &repos))
+	require.NotEmpty(s.T(), repos, "query filter name=~test should return results")
+
+	for _, r := range repos {
+		name, _ := r["name"].(string)
+		assert.Contains(s.T(), name, "test", "filtered repos should contain 'test' in name")
+	}
+}
+
+func (s *DefaultSuite) TestMCPTool_ListArtifactsWithQuery() {
+	result := s.session.callTool(s.T(), "list_artifacts", map[string]any{
+		"project_name":    "library",
+		"repository_name": "test-image",
+		"query":           "tags=~v1",
+	})
+	text := getTextContent(s.T(), result)
+
+	var artifacts []map[string]any
+	require.NoError(s.T(), json.Unmarshal([]byte(text), &artifacts))
+	require.NotEmpty(s.T(), artifacts, "query filter tags=~v1 should return artifacts")
+
+	tagFound := false
+	for _, a := range artifacts {
+		tags, _ := a["tags"].([]any)
+		for _, t := range tags {
+			tag, _ := t.(map[string]any)
+			if tag["name"] == "v1" {
+				tagFound = true
+			}
+		}
+	}
+	assert.True(s.T(), tagFound, "filtered artifacts should include tag v1")
+}
+
 func TestDefaultSuite(t *testing.T) {
 	suite.Run(t, new(DefaultSuite))
 }
