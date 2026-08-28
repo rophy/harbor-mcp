@@ -67,6 +67,22 @@ HARBOR_ROBOT_NAME=${ROBOT_NAME}
 HARBOR_ROBOT_SECRET=${ROBOT_SECRET}
 EOF
 
+echo "==> Fixing registry storage permissions..."
+docker compose exec -u root harbor-registry chown 10000:10000 /storage
+
+echo "==> Waiting for registry to accept pushes..."
+for i in $(seq 1 30); do
+  if docker compose exec harbor-registry sh -c 'touch /storage/.probe && rm /storage/.probe' > /dev/null 2>&1; then
+    echo "    Registry storage is writable (after ${i}s)"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "    ERROR: Registry storage not writable within 30s"
+    exit 1
+  fi
+  sleep 1
+done
+
 echo "==> Pushing test image to Harbor..."
 docker pull busybox:1.37
 docker tag busybox:1.37 localhost:8880/library/test-image:v1

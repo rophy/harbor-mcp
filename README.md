@@ -84,6 +84,9 @@ opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
 | `DATA_DIR` | no | Directory for SQLite database (default: `/data`) |
 | `OAUTH_SIGNING_KEY` | no | PEM-encoded RSA private key for JWT signing (auto-generated if unset) |
 | `OAUTH_UPSTREAM_EXTERNAL_URL` | no | Browser-reachable URL for upstream IDP (see below) |
+| `RATE_LIMIT_ENABLED` | no | Enable per-user rate limiting (default: `false`) |
+| `RATE_LIMIT_RPM` | no | Requests per minute per user (default: `60`) |
+| `RATE_LIMIT_BURST` | no | Extra burst allowance on top of RPM (default: `20`) |
 
 ### OAUTH_UPSTREAM_EXTERNAL_URL
 

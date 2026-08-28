@@ -144,20 +144,24 @@ func (h *OAuthHandlers) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	callbackURL := h.baseURL + "/auth/callback"
-	_, err := h.upstream.ExchangeCode(ctx, code, callbackURL)
+	tokens, err := h.upstream.ExchangeCode(ctx, code, callbackURL)
 	if err != nil {
 		log.Printf("upstream token exchange failed: %v", err)
 		http.Error(w, "upstream authentication failed", http.StatusBadGateway)
 		return
 	}
 
+	subject := tokens.Subject()
+
 	session := &fositeOAuth2.JWTSession{
 		JWTClaims: &jwt.JWTClaims{
+			Subject:   subject,
 			Issuer:    h.baseURL,
 			IssuedAt:  time.Now(),
 			ExpiresAt: time.Now().Add(time.Hour),
 		},
 		JWTHeader: &jwt.Headers{},
+		Subject:   subject,
 	}
 	response, err := h.provider.NewAuthorizeResponse(ctx, p.fositeReq, session)
 	if err != nil {

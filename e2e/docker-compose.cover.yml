@@ -1,0 +1,8 @@
+services:
+  harbor-mcp:
+    build:
+      dockerfile: Dockerfile.cover
+    environment:
+      GOCOVERDIR: /covdata
+    volumes:
+      - ./covdata:/covdata

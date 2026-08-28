@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -9,13 +10,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	harbormcp "github.com/rophy/harbor-mcp"
 	"github.com/rophy/harbor-mcp/internal/auth"
 	"github.com/rophy/harbor-mcp/internal/config"
 	"github.com/rophy/harbor-mcp/internal/harbor"
+	"github.com/rophy/harbor-mcp/internal/ratelimit"
 	"github.com/rophy/harbor-mcp/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -88,13 +93,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 		&mcp.StreamableHTTPOptions{},
 	)
 
+	var mcpChain http.Handler = mcpHandler
+	if cfg.RateLimitEnabled {
+		limiter := ratelimit.New(cfg.RateLimitRPM, cfg.RateLimitBurst)
+		mcpChain = ratelimit.Middleware(limiter, mcpChain)
+		log.Printf("rate limiting enabled: %d rpm, %d burst", cfg.RateLimitRPM, cfg.RateLimitBurst)
+	}
+
 	httpMux := http.NewServeMux()
 	oauthHandlers.RegisterRoutes(httpMux)
-	httpMux.Handle("/mcp", auth.RequireBearerToken(provider, mcpHandler))
+	httpMux.Handle("/mcp", auth.RequireBearerToken(provider, mcpChain))
 
-	addr := fmt.Sprintf(":%d", cfg.ServerPort)
-	log.Printf("harbor-mcp listening on %s", addr)
-	return http.ListenAndServe(addr, httpMux)
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.ServerPort),
+		Handler: httpMux,
+	}
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+		sig := <-sigCh
+		log.Printf("received %v, shutting down", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+		close(shutdownDone)
+	}()
+
+	log.Printf("harbor-mcp listening on %s", srv.Addr)
+	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		return err
+	}
+	<-shutdownDone
+	return nil
 }
 
 func loadOrGenerateKey(pemData string) (*rsa.PrivateKey, error) {
