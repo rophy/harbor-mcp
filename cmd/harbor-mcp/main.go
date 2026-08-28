@@ -16,10 +16,12 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	harbormcp "github.com/rophy/harbor-mcp"
 	"github.com/rophy/harbor-mcp/internal/auth"
 	"github.com/rophy/harbor-mcp/internal/config"
 	"github.com/rophy/harbor-mcp/internal/harbor"
+	"github.com/rophy/harbor-mcp/internal/metrics"
 	"github.com/rophy/harbor-mcp/internal/ratelimit"
 	"github.com/rophy/harbor-mcp/internal/server"
 	"github.com/spf13/cobra"
@@ -105,10 +107,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	httpMux := http.NewServeMux()
 	oauthHandlers.RegisterRoutes(httpMux)
 	httpMux.Handle("/mcp", auth.RequireBearerToken(provider, mcpChain))
+	httpMux.Handle("/metrics", promhttp.Handler())
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.ServerPort),
-		Handler: httpMux,
+		Handler: metrics.Middleware(httpMux),
 	}
 
 	shutdownDone := make(chan struct{})

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/rophy/harbor-mcp/internal/auth"
+	"github.com/rophy/harbor-mcp/internal/metrics"
 )
 
 func Middleware(limiter *Limiter, next http.Handler) http.Handler {
@@ -22,6 +23,7 @@ func Middleware(limiter *Limiter, next http.Handler) http.Handler {
 		}
 
 		slog.Warn("rate limit exceeded", "user", key, "rpm", limiter.RPM())
+		metrics.RateLimitHitsTotal.Inc()
 
 		retryAfter := 60
 		w.Header().Set("Content-Type", "application/json")
