@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -70,7 +70,7 @@ func (s *SQLiteStore) loadClients() error {
 		count++
 	}
 	if count > 0 {
-		log.Printf("loaded %d OAuth clients from database", count)
+		slog.Info("loaded OAuth clients from database", "count", count)
 	}
 	return rows.Err()
 }
@@ -80,14 +80,14 @@ func (s *SQLiteStore) RegisterClient(id string, redirectURIs []string) {
 
 	urisJSON, err := json.Marshal(redirectURIs)
 	if err != nil {
-		log.Printf("failed to marshal redirect_uris: %v", err)
+		slog.Error("failed to marshal redirect_uris", "error", err)
 		return
 	}
 	if _, err := s.db.Exec(
 		"INSERT OR REPLACE INTO clients (id, redirect_uris) VALUES (?, ?)",
 		id, string(urisJSON),
 	); err != nil {
-		log.Printf("failed to persist client %s: %v", id, err)
+		slog.Error("failed to persist client", "client_id", id, "error", err)
 	}
 }
 

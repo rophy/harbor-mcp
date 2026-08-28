@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -56,6 +56,8 @@ func main() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %v", err)
@@ -97,7 +99,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if cfg.RateLimitEnabled {
 		limiter := ratelimit.New(cfg.RateLimitRPM, cfg.RateLimitBurst)
 		mcpChain = ratelimit.Middleware(limiter, mcpChain)
-		log.Printf("rate limiting enabled: %d rpm, %d burst", cfg.RateLimitRPM, cfg.RateLimitBurst)
+		slog.Info("rate limiting enabled", "rpm", cfg.RateLimitRPM, "burst", cfg.RateLimitBurst)
 	}
 
 	httpMux := http.NewServeMux()
@@ -114,14 +116,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		sig := <-sigCh
-		log.Printf("received %v, shutting down", sig)
+		slog.Info("received signal, shutting down", "signal", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)
 		close(shutdownDone)
 	}()
 
-	log.Printf("harbor-mcp listening on %s", srv.Addr)
+	slog.Info("harbor-mcp listening", "addr", srv.Addr)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}
@@ -137,6 +139,6 @@ func loadOrGenerateKey(pemData string) (*rsa.PrivateKey, error) {
 		}
 		return x509.ParsePKCS1PrivateKey(block.Bytes)
 	}
-	log.Println("no OAUTH_SIGNING_KEY set, generating ephemeral RSA key")
+	slog.Warn("no OAUTH_SIGNING_KEY set, generating ephemeral RSA key")
 	return rsa.GenerateKey(rand.Reader, 2048)
 }

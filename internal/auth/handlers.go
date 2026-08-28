@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -146,7 +146,7 @@ func (h *OAuthHandlers) handleCallback(w http.ResponseWriter, r *http.Request) {
 	callbackURL := h.baseURL + "/auth/callback"
 	tokens, err := h.upstream.ExchangeCode(ctx, code, callbackURL)
 	if err != nil {
-		log.Printf("upstream token exchange failed: %v", err)
+		slog.Error("upstream token exchange failed", "error", err)
 		http.Error(w, "upstream authentication failed", http.StatusBadGateway)
 		return
 	}
