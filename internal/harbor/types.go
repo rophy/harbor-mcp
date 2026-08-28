@@ -66,9 +66,15 @@ type VulnerabilityItem struct {
 	Description string `json:"description"`
 }
 
+type SearchResult struct {
+	Projects     []Project    `json:"project"`
+	Repositories []Repository `json:"repository"`
+}
+
 type ListOpts struct {
 	Page     int
 	PageSize int
+	Query    string
 }
 
 type ListProjectsOpts struct {

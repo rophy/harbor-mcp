@@ -11,6 +11,7 @@ import (
 )
 
 type Client interface {
+	Search(ctx context.Context, query string) (*SearchResult, error)
 	ListProjects(ctx context.Context, opts ListProjectsOpts) ([]Project, error)
 	GetProject(ctx context.Context, name string) (*Project, error)
 	ListRepositories(ctx context.Context, projectName string, opts ListOpts) ([]Repository, error)
@@ -83,7 +84,19 @@ func paginationQuery(opts ListOpts) url.Values {
 	if opts.PageSize > 0 {
 		q.Set("page_size", strconv.Itoa(opts.PageSize))
 	}
+	if opts.Query != "" {
+		q.Set("q", opts.Query)
+	}
 	return q
+}
+
+func (c *HTTPClient) Search(ctx context.Context, query string) (*SearchResult, error) {
+	var result SearchResult
+	q := url.Values{"q": {query}}
+	if err := c.do(ctx, "/search", q, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *HTTPClient) ListProjects(ctx context.Context, opts ListProjectsOpts) ([]Project, error) {

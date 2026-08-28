@@ -12,6 +12,11 @@ func NewMCPServer(harborClient harbor.Client) *mcp.Server {
 	)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "search",
+		Description: "Search across all Harbor projects and repositories by keyword",
+	}, searchHandler(harborClient))
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_projects",
 		Description: "List Harbor projects accessible to the configured account",
 	}, listProjectsHandler(harborClient))
