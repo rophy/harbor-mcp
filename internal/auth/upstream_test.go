@@ -79,6 +79,21 @@ func TestNewUpstreamOIDC_Unreachable(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestNewUpstreamOIDC_CustomHTTPClient(t *testing.T) {
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"authorization_endpoint": "https://idp.example.com/authorize",
+			"token_endpoint":         "http://" + r.Host + "/token",
+		})
+	}))
+	defer idp.Close()
+
+	customClient := idp.Client()
+	upstream, err := auth.NewUpstreamOIDC(idp.URL, "client-id", "client-secret", "", customClient)
+	require.NoError(t, err)
+	assert.Contains(t, upstream.TokenEndpoint, "/token")
+}
+
 func TestNewUpstreamOIDC_ExternalURL(t *testing.T) {
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{

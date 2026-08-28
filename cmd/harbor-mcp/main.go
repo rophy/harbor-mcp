@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -65,16 +67,32 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %v", err)
 	}
 
+	var httpClient *http.Client
+	if cfg.TLSSkipVerify {
+		slog.Warn("TLS verification disabled")
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				DialContext:     (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+			},
+		}
+	}
+
 	signingKey, err := loadOrGenerateKey(cfg.OAuthSigningKey)
 	if err != nil {
 		return fmt.Errorf("failed to load signing key: %v", err)
 	}
 
+	var upstreamOpts []*http.Client
+	if httpClient != nil {
+		upstreamOpts = append(upstreamOpts, httpClient)
+	}
 	upstream, err := auth.NewUpstreamOIDC(
 		cfg.OAuthUpstreamIssuer,
 		cfg.OAuthUpstreamClientID,
 		cfg.OAuthUpstreamClientSecret,
 		cfg.OAuthUpstreamExternalURL,
+		upstreamOpts...,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to discover upstream OIDC: %v", err)
@@ -89,7 +107,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	provider := auth.NewOAuthProvider(store, signingKey)
 	oauthHandlers := auth.NewOAuthHandlers(provider, store, upstream, cfg.ServerBaseURL)
 
-	harborClient := harbor.NewClient(cfg.HarborURL, cfg.HarborRobotName, cfg.HarborRobotSecret)
+	var harborOpts []harbor.ClientOption
+	if httpClient != nil {
+		harborOpts = append(harborOpts, harbor.WithHTTPClient(httpClient))
+	}
+	harborClient := harbor.NewClient(cfg.HarborURL, cfg.HarborRobotName, cfg.HarborRobotSecret, harborOpts...)
 	mcpServer := server.NewMCPServer(harborClient)
 
 	mcpHandler := mcp.NewStreamableHTTPHandler(

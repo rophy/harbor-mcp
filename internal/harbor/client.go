@@ -26,12 +26,24 @@ type HTTPClient struct {
 	robotSecret string
 }
 
-func NewClient(baseURL, robotName, robotSecret string) *HTTPClient {
-	return &HTTPClient{
+func NewClient(baseURL, robotName, robotSecret string, opts ...ClientOption) *HTTPClient {
+	c := &HTTPClient{
 		baseURL:     strings.TrimRight(baseURL, "/"),
 		httpClient:  &http.Client{},
 		robotName:   robotName,
 		robotSecret: robotSecret,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+type ClientOption func(*HTTPClient)
+
+func WithHTTPClient(hc *http.Client) ClientOption {
+	return func(c *HTTPClient) {
+		c.httpClient = hc
 	}
 }
 

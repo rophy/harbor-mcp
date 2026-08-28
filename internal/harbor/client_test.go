@@ -169,3 +169,34 @@ func TestAPIError(t *testing.T) {
 		t.Fatal("expected error for 404 response")
 	}
 }
+
+func TestWithHTTPClient(t *testing.T) {
+	var capturedUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedUA = r.Header.Get("User-Agent")
+		json.NewEncoder(w).Encode(harbor.Project{ProjectID: 1, Name: "test"})
+	}))
+	t.Cleanup(srv.Close)
+
+	customClient := &http.Client{Transport: &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		req.Header.Set("User-Agent", "custom-test-client")
+		return http.DefaultTransport.RoundTrip(req)
+	}}}
+
+	client := harbor.NewClient(srv.URL, "robot$test", "secret", harbor.WithHTTPClient(customClient))
+	_, err := client.GetProject(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedUA != "custom-test-client" {
+		t.Fatalf("expected custom User-Agent, got %q", capturedUA)
+	}
+}
+
+type roundTripFunc struct {
+	fn func(*http.Request) (*http.Response, error)
+}
+
+func (f *roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f.fn(req)
+}

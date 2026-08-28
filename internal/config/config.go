@@ -21,6 +21,7 @@ type Config struct {
 	RateLimitEnabled             bool
 	RateLimitRPM                 int
 	RateLimitBurst               int
+	TLSSkipVerify                bool
 }
 
 func Load() (*Config, error) {
@@ -53,6 +54,7 @@ func Load() (*Config, error) {
 		cfg.DataDir = "/data"
 	}
 
+	cfg.TLSSkipVerify = os.Getenv("TLS_SKIP_VERIFY") == "true" || os.Getenv("TLS_SKIP_VERIFY") == "1"
 	cfg.RateLimitEnabled = os.Getenv("RATE_LIMIT_ENABLED") == "true" || os.Getenv("RATE_LIMIT_ENABLED") == "1"
 	cfg.RateLimitRPM = 60
 	if v := os.Getenv("RATE_LIMIT_RPM"); v != "" {
