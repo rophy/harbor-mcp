@@ -72,6 +72,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		slog.Warn("TLS verification disabled")
 		httpClient = &http.Client{
 			Transport: &http.Transport{
+				Proxy:           http.ProxyFromEnvironment,
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 				DialContext:     (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
 			},

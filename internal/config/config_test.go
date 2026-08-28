@@ -18,6 +18,7 @@ func TestLoad_AllSet(t *testing.T) {
 	t.Setenv("OAUTH_UPSTREAM_CLIENT_ID", "harbor-mcp")
 	t.Setenv("OAUTH_UPSTREAM_CLIENT_SECRET", "client-secret")
 	t.Setenv("SERVER_BASE_URL", "http://localhost:8080")
+	t.Setenv("TLS_SKIP_VERIFY", "")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
