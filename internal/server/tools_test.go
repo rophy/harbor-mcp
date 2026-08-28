@@ -88,7 +88,7 @@ func TestListProjectsTool(t *testing.T) {
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
 	require.NoError(t, err)
-	defer session.Close()
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_projects",
@@ -105,7 +105,7 @@ func TestGetProjectTool(t *testing.T) {
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
 	require.NoError(t, err)
-	defer session.Close()
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_project",
@@ -122,7 +122,7 @@ func TestListRepositoriesTool(t *testing.T) {
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
 	require.NoError(t, err)
-	defer session.Close()
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_repositories",
@@ -139,7 +139,7 @@ func TestListArtifactsTool(t *testing.T) {
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
 	require.NoError(t, err)
-	defer session.Close()
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "list_artifacts",
@@ -159,7 +159,7 @@ func TestGetArtifactTool(t *testing.T) {
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
 	require.NoError(t, err)
-	defer session.Close()
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_artifact",
@@ -180,7 +180,7 @@ func TestGetVulnerabilitiesTool(t *testing.T) {
 	ctx := context.Background()
 	session, err := connect(ctx, srv)
 	require.NoError(t, err)
-	defer session.Close()
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_vulnerabilities",

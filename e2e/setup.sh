@@ -72,7 +72,7 @@ docker compose exec -u root harbor-registry chown 10000:10000 /storage
 
 echo "==> Waiting for registry to accept pushes..."
 for i in $(seq 1 30); do
-  if docker compose exec harbor-registry ls /storage > /dev/null 2>&1; then
+  if docker compose exec harbor-registry sh -c 'touch /storage/.probe && rm /storage/.probe' > /dev/null 2>&1; then
     echo "    Registry storage is writable (after ${i}s)"
     break
   fi

@@ -6,6 +6,32 @@ cd "$(dirname "$0")"
 COVDATA_DIR="$(pwd)/covdata"
 COVER_COMPOSE=(-f docker-compose.yml -f docker-compose.cover.yml)
 
+cleanup() {
+  echo ""
+  echo "==> Stopping harbor-mcp gracefully (flushing coverage)..."
+  docker compose "${COVER_COMPOSE[@]}" stop -t 10 harbor-mcp
+
+  echo ""
+  echo "==> Generating coverage report..."
+  if ls "$COVDATA_DIR"/cov*.* 1>/dev/null 2>&1; then
+    go tool covdata textfmt -i="$COVDATA_DIR" -o=coverage-e2e.out
+    echo "--- Coverage by function ---"
+    go tool cover -func=coverage-e2e.out
+    echo ""
+    echo "    Coverage profile: $(pwd)/coverage-e2e.out"
+    echo "    HTML report:      go tool cover -html=coverage-e2e.out -o coverage-e2e.html"
+  else
+    echo "    WARNING: No coverage data found in $COVDATA_DIR"
+    echo "    Check that GOCOVERDIR is set and harbor-mcp was stopped gracefully"
+  fi
+
+  echo ""
+  echo "==> Tearing down..."
+  docker compose "${COVER_COMPOSE[@]}" down -v
+  rm -f .env
+}
+trap cleanup EXIT
+
 echo "==> Cleaning previous coverage data..."
 rm -rf "$COVDATA_DIR"
 mkdir -p "$COVDATA_DIR"
@@ -91,29 +117,4 @@ done
 echo ""
 echo "==> Running e2e tests..."
 go test -tags e2e ./. -v -count=1 2>&1 | tee test-output.log
-TEST_EXIT=${PIPESTATUS[0]}
-
-echo ""
-echo "==> Stopping harbor-mcp gracefully (flushing coverage)..."
-docker compose "${COVER_COMPOSE[@]}" stop -t 10 harbor-mcp
-
-echo ""
-echo "==> Generating coverage report..."
-if ls "$COVDATA_DIR"/cov*.* 1>/dev/null 2>&1; then
-  go tool covdata textfmt -i="$COVDATA_DIR" -o=coverage-e2e.out
-  echo "--- Coverage by function ---"
-  go tool cover -func=coverage-e2e.out
-  echo ""
-  echo "    Coverage profile: $(pwd)/coverage-e2e.out"
-  echo "    HTML report:      go tool cover -html=coverage-e2e.out -o coverage-e2e.html"
-else
-  echo "    WARNING: No coverage data found in $COVDATA_DIR"
-  echo "    Check that GOCOVERDIR is set and harbor-mcp was stopped gracefully"
-fi
-
-echo ""
-echo "==> Tearing down..."
-docker compose "${COVER_COMPOSE[@]}" down -v
-rm -f .env
-
-exit $TEST_EXIT
+exit ${PIPESTATUS[0]}

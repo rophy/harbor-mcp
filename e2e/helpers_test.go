@@ -19,9 +19,9 @@ import (
 )
 
 var (
-	mcpServerURL = envOr("MCP_SERVER_URL", "http://localhost:28080")
-	oidcMockURL  = envOr("OIDC_MOCK_URL", "http://localhost:28090")
-	harborURL    = envOr("HARBOR_URL", "http://localhost:8880")
+	mcpServerURL string
+	oidcMockURL  string
+	harborURL    string
 )
 
 func loadEnvFile() {
@@ -51,6 +51,9 @@ func loadEnvFile() {
 
 func init() {
 	loadEnvFile()
+	mcpServerURL = envOr("MCP_SERVER_URL", "http://localhost:28080")
+	oidcMockURL = envOr("OIDC_MOCK_URL", "http://localhost:28090")
+	harborURL = envOr("HARBOR_URL", "http://localhost:8880")
 }
 
 func testDir() string {

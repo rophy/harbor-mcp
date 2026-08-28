@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -77,7 +78,9 @@ func setupOAuthServerEnv(t *testing.T) *testEnv {
 func TestMetadataEndpoint(t *testing.T) {
 	srv := setupOAuthServer(t)
 
-	resp, err := http.Get(srv.URL + "/.well-known/oauth-authorization-server")
+	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/.well-known/oauth-authorization-server", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -94,7 +97,10 @@ func TestRegisterEndpoint(t *testing.T) {
 	srv := setupOAuthServer(t)
 
 	body := `{"redirect_uris": ["http://localhost:3000/callback"], "client_name": "test"}`
-	resp, err := http.Post(srv.URL+"/register", "application/json", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/register", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -110,7 +116,10 @@ func TestRegisterEndpoint_MissingRedirectURIs(t *testing.T) {
 	srv := setupOAuthServer(t)
 
 	body := `{"client_name": "test"}`
-	resp, err := http.Post(srv.URL+"/register", "application/json", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/register", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -120,7 +129,10 @@ func TestRegisterEndpoint_MissingRedirectURIs(t *testing.T) {
 func TestRegisterEndpoint_InvalidJSON(t *testing.T) {
 	srv := setupOAuthServer(t)
 
-	resp, err := http.Post(srv.URL+"/register", "application/json", strings.NewReader("not json"))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/register", strings.NewReader("not json"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -145,7 +157,10 @@ func TestAuthorizeEndpoint_UnknownClient(t *testing.T) {
 func registerAndGetClientID(t *testing.T, srvURL string) string {
 	t.Helper()
 	body := `{"redirect_uris": ["http://localhost:9999/callback"], "client_name": "test"}`
-	resp, err := http.Post(srvURL+"/register", "application/json", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", srvURL+"/register", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	var result map[string]any
@@ -192,7 +207,9 @@ func TestTokenEndpoint_InvalidGrant(t *testing.T) {
 func TestCallbackEndpoint_MissingParams(t *testing.T) {
 	srv := setupOAuthServer(t)
 
-	resp, err := http.Get(srv.URL + "/auth/callback")
+	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/auth/callback", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -202,7 +219,9 @@ func TestCallbackEndpoint_MissingParams(t *testing.T) {
 func TestCallbackEndpoint_UnknownState(t *testing.T) {
 	srv := setupOAuthServer(t)
 
-	resp, err := http.Get(srv.URL + "/auth/callback?state=unknown&code=somecode")
+	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/auth/callback?state=unknown&code=somecode", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
