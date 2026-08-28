@@ -2,11 +2,12 @@ package ratelimit
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/rophy/harbor-mcp/internal/auth"
+	"github.com/rophy/harbor-mcp/internal/metrics"
 )
 
 func Middleware(limiter *Limiter, next http.Handler) http.Handler {
@@ -21,7 +22,8 @@ func Middleware(limiter *Limiter, next http.Handler) http.Handler {
 			return
 		}
 
-		log.Printf("rate limit exceeded for user %s (%d rpm)", key, limiter.RPM())
+		slog.Warn("rate limit exceeded", "user", key, "rpm", limiter.RPM())
+		metrics.RateLimitHitsTotal.Inc()
 
 		retryAfter := 60
 		w.Header().Set("Content-Type", "application/json")

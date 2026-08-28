@@ -9,6 +9,10 @@ import (
 	"github.com/rophy/harbor-mcp/internal/harbor"
 )
 
+type SearchInput struct {
+	Query string `json:"query" jsonschema:"Search keyword to find projects and repositories across all of Harbor"`
+}
+
 type ListProjectsInput struct {
 	Page     int    `json:"page,omitempty" jsonschema:"Page number (default 1)"`
 	PageSize int    `json:"page_size,omitempty" jsonschema:"Items per page (default 10)"`
@@ -23,6 +27,7 @@ type ListRepositoriesInput struct {
 	ProjectName string `json:"project_name" jsonschema:"Name of the project"`
 	Page        int    `json:"page,omitempty" jsonschema:"Page number (default 1)"`
 	PageSize    int    `json:"page_size,omitempty" jsonschema:"Items per page (default 10)"`
+	Query       string `json:"query,omitempty" jsonschema:"Filter query (e.g. name=~nginx for fuzzy match)"`
 }
 
 type ListArtifactsInput struct {
@@ -30,6 +35,7 @@ type ListArtifactsInput struct {
 	RepositoryName string `json:"repository_name" jsonschema:"Name of the repository"`
 	Page           int    `json:"page,omitempty" jsonschema:"Page number (default 1)"`
 	PageSize       int    `json:"page_size,omitempty" jsonschema:"Items per page (default 10)"`
+	Query          string `json:"query,omitempty" jsonschema:"Filter query (e.g. tags=~v1 for fuzzy tag match, tags=nil for untagged)"`
 }
 
 type ArtifactRefInput struct {
@@ -46,6 +52,16 @@ func toTextResult(v any) (*mcp.CallToolResult, any, error) {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
 	}, nil, nil
+}
+
+func searchHandler(client harbor.Client) func(context.Context, *mcp.CallToolRequest, SearchInput) (*mcp.CallToolResult, any, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input SearchInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.Search(ctx, input.Query)
+		if err != nil {
+			return nil, nil, fmt.Errorf("searching: %w", err)
+		}
+		return toTextResult(result)
+	}
 }
 
 func listProjectsHandler(client harbor.Client) func(context.Context, *mcp.CallToolRequest, ListProjectsInput) (*mcp.CallToolResult, any, error) {
@@ -74,7 +90,7 @@ func getProjectHandler(client harbor.Client) func(context.Context, *mcp.CallTool
 func listRepositoriesHandler(client harbor.Client) func(context.Context, *mcp.CallToolRequest, ListRepositoriesInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input ListRepositoriesInput) (*mcp.CallToolResult, any, error) {
 		repos, err := client.ListRepositories(ctx, input.ProjectName, harbor.ListOpts{
-			Page: input.Page, PageSize: input.PageSize,
+			Page: input.Page, PageSize: input.PageSize, Query: input.Query,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("listing repositories: %w", err)
@@ -86,7 +102,7 @@ func listRepositoriesHandler(client harbor.Client) func(context.Context, *mcp.Ca
 func listArtifactsHandler(client harbor.Client) func(context.Context, *mcp.CallToolRequest, ListArtifactsInput) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input ListArtifactsInput) (*mcp.CallToolResult, any, error) {
 		artifacts, err := client.ListArtifacts(ctx, input.ProjectName, input.RepositoryName, harbor.ListOpts{
-			Page: input.Page, PageSize: input.PageSize,
+			Page: input.Page, PageSize: input.PageSize, Query: input.Query,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("listing artifacts: %w", err)

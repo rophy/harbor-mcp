@@ -16,6 +16,7 @@ type UpstreamOIDC struct {
 	ClientSecret          string
 	AuthorizationEndpoint string // browser-facing authorize URL
 	TokenEndpoint         string // server-to-server token URL
+	httpClient            *http.Client
 }
 
 type UpstreamTokens struct {
@@ -29,9 +30,14 @@ type oidcDiscovery struct {
 	TokenEndpoint         string `json:"token_endpoint"`
 }
 
-func NewUpstreamOIDC(issuer, clientID, clientSecret, externalURL string) (*UpstreamOIDC, error) {
+func NewUpstreamOIDC(issuer, clientID, clientSecret, externalURL string, httpClient ...*http.Client) (*UpstreamOIDC, error) {
+	hc := http.DefaultClient
+	if len(httpClient) > 0 && httpClient[0] != nil {
+		hc = httpClient[0]
+	}
+
 	discoveryURL := strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
-	resp, err := http.Get(discoveryURL)
+	resp, err := hc.Get(discoveryURL)
 	if err != nil {
 		return nil, fmt.Errorf("OIDC discovery request failed: %w", err)
 	}
@@ -61,6 +67,7 @@ func NewUpstreamOIDC(issuer, clientID, clientSecret, externalURL string) (*Upstr
 		ClientSecret:          clientSecret,
 		AuthorizationEndpoint: authEndpoint,
 		TokenEndpoint:         disc.TokenEndpoint,
+		httpClient:            hc,
 	}, nil
 }
 
@@ -90,7 +97,11 @@ func (u *UpstreamOIDC) ExchangeCode(ctx context.Context, code, callbackURL strin
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	hc := u.httpClient
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange request failed: %w", err)
 	}

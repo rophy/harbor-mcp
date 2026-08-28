@@ -234,10 +234,17 @@ Rules:
 - Figure out harbor-mcp configuration from the container's help output ONLY
 - Do NOT read any source code, test files, or docker-compose files
 - Do NOT read any files in this repository
-- You MUST write __GAPS_FILE__ when done. List every place where the
-  documentation was unclear, incomplete, or where you had to guess.
-  If the documentation was perfectly clear, write "No gaps found." to
-  the file. The file must exist when you finish.
+- You MUST write __GAPS_FILE__ when done. List every place where
+  harbor-mcp's documentation was unclear, incomplete, or where you had
+  to guess. If the documentation was perfectly clear, write "No gaps found."
+  to the file. The file must exist when you finish.
+  Out of scope (do NOT report these as gaps):
+  - The opencode mcp-auth.json format and file location (provided above by
+    the test, not harbor-mcp's responsibility to document)
+  - How to log in to a specific OIDC provider programmatically (the OIDC
+    mock login instructions were provided above; harbor-mcp's docs correctly
+    defer to each provider's own documentation)
+  - Anything about opencode's internal behavior or configuration format
 PROMPT_EOF
 )"
   # Substitute placeholders (sed with | delimiter since URLs contain /)

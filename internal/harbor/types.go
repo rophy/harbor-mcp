@@ -15,10 +15,12 @@ type Project struct {
 }
 
 type Repository struct {
-	Name          string    `json:"name"`
-	ArtifactCount int       `json:"artifact_count"`
-	PullCount     int       `json:"pull_count"`
-	CreationTime  time.Time `json:"creation_time"`
+	Name           string    `json:"name"`
+	RepositoryName string    `json:"repository_name,omitempty"`
+	ArtifactCount  int       `json:"artifact_count"`
+	PullCount      int       `json:"pull_count"`
+	ProjectID      int       `json:"project_id,omitempty"`
+	CreationTime   time.Time `json:"creation_time"`
 }
 
 type Tag struct {
@@ -66,9 +68,15 @@ type VulnerabilityItem struct {
 	Description string `json:"description"`
 }
 
+type SearchResult struct {
+	Projects     []Project    `json:"project"`
+	Repositories []Repository `json:"repository"`
+}
+
 type ListOpts struct {
 	Page     int
 	PageSize int
+	Query    string
 }
 
 type ListProjectsOpts struct {

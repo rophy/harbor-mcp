@@ -6,10 +6,11 @@ An [MCP](https://modelcontextprotocol.io/) server that exposes [Harbor](https://
 
 | Tool | Description |
 |------|-------------|
+| `search` | Search across all projects and repositories by keyword |
 | `list_projects` | List projects (with optional name filter and pagination) |
 | `get_project` | Get details of a specific project |
-| `list_repositories` | List repositories in a project |
-| `list_artifacts` | List artifacts (images) in a repository |
+| `list_repositories` | List repositories in a project (supports `query` filter, e.g. `name=~nginx`) |
+| `list_artifacts` | List artifacts (images) in a repository (supports `query` filter, e.g. `tags=~v1`, `tags=nil`) |
 | `get_artifact` | Get details of a specific artifact by tag or digest |
 | `get_vulnerabilities` | Get vulnerability scan report for an artifact |
 
@@ -37,12 +38,16 @@ services:
       OAUTH_UPSTREAM_CLIENT_ID: harbor-mcp
       OAUTH_UPSTREAM_CLIENT_SECRET: <client-secret>
       SERVER_BASE_URL: https://harbor-mcp.example.com
+      # Set this if the OIDC issuer uses an internal hostname not reachable from the browser:
+      # OAUTH_UPSTREAM_EXTERNAL_URL: https://idp-external.example.com/realms/main
     volumes:
       - harbor-mcp-data:/data
 
 volumes:
   harbor-mcp-data:
 ```
+
+**OIDC provider setup:** The upstream IDP must have `SERVER_BASE_URL/auth/callback` (e.g. `https://harbor-mcp.example.com/auth/callback`) registered as an allowed redirect URI for the `OAUTH_UPSTREAM_CLIENT_ID` client.
 
 The container runs the `serve` subcommand by default. Use `docker run <image> help` to view the full documentation.
 
@@ -84,6 +89,7 @@ opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
 | `DATA_DIR` | no | Directory for SQLite database (default: `/data`) |
 | `OAUTH_SIGNING_KEY` | no | PEM-encoded RSA private key for JWT signing (auto-generated if unset) |
 | `OAUTH_UPSTREAM_EXTERNAL_URL` | no | Browser-reachable URL for upstream IDP (see below) |
+| `TLS_SKIP_VERIFY` | no | Skip TLS certificate verification for Harbor and OIDC endpoints (default: `false`) |
 | `RATE_LIMIT_ENABLED` | no | Enable per-user rate limiting (default: `false`) |
 | `RATE_LIMIT_RPM` | no | Requests per minute per user (default: `60`) |
 | `RATE_LIMIT_BURST` | no | Extra burst allowance on top of RPM (default: `20`) |
@@ -126,14 +132,21 @@ The response contains `{"name": "robot$mcp-reader", "secret": "..."}`. Use the f
 
 ## Headless / CI Authentication
 
-MCP clients normally handle the OAuth flow with a browser. For headless environments (CI/CD, scripts), you can complete the flow manually:
+MCP clients normally handle the OAuth flow with a browser. For headless environments (CI/CD, scripts, or MCP clients that cannot open a browser), you can complete the flow programmatically.
+
+**Prerequisites:** If the OIDC issuer uses an internal hostname (e.g. Docker network), set `OAUTH_UPSTREAM_EXTERNAL_URL` to a URL reachable by the client performing the flow (your script or curl). harbor-mcp rewrites the authorize redirect to use this URL instead of the internal issuer hostname. See the [OAUTH_UPSTREAM_EXTERNAL_URL](#oauth_upstream_external_url) section for details.
 
 1. **Discover endpoints:** `GET /.well-known/oauth-authorization-server` returns `registration_endpoint`, `authorization_endpoint`, and `token_endpoint`.
 2. **Register a client:** `POST /register` with `{"redirect_uris": ["http://localhost:0/callback"], "client_name": "my-client"}`. Returns `client_id`.
-3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&nonce=<random>&scope=harbor:read`. The `nonce` can be any random string. This redirects to the upstream OIDC login page. Complete authentication and capture the `code` from the final redirect.
-4. **Exchange code for token:** `POST /token` with `grant_type=authorization_code&code=<code>&redirect_uri=<uri>&client_id=<id>&code_verifier=<verifier>`. Returns an access token.
+3. **Authorize:** `GET /authorize?client_id=<id>&redirect_uri=<uri>&response_type=code&code_challenge=<S256 challenge>&code_challenge_method=S256&state=<state>&scope=harbor:read`. The `state` must be at least 8 characters. You can optionally include a `nonce` parameter if your OIDC provider requires it — harbor-mcp passes it through but does not validate it. This returns a 302 redirect to the upstream OIDC login page.
+4. **Complete OIDC login:** Follow the redirect to your OIDC provider and authenticate. The provider redirects back to harbor-mcp's `/auth/callback` with the `state` and an authorization code. harbor-mcp then redirects to your `redirect_uri` with a `code` parameter. In headless environments, do not follow redirects automatically — capture each redirect to extract the `code` from the final redirect URL. How you complete the OIDC login depends on your provider (e.g. Keycloak has a direct-grant flow, some providers support API-based login) — consult your OIDC provider's documentation for headless authentication options.
+5. **Exchange code for token:** `POST /token` with `grant_type=authorization_code&code=<code>&redirect_uri=<uri>&client_id=<id>&code_verifier=<verifier>`. Returns an access token.
 
-**Important:** The authorize flow uses a server-side session cookie to track PKCE and state across redirects. You **must** maintain cookies (e.g. `curl -b cookiejar -c cookiejar`) across the entire authorize → OIDC login → callback chain, or the callback will fail silently. If `OAUTH_UPSTREAM_EXTERNAL_URL` is set, harbor-mcp already rewrites the OIDC redirect to use the external URL — just follow redirects normally.
+harbor-mcp tracks the PKCE challenge and authorization state server-side using the `state` parameter — no cookies are required.
+
+## Monitoring
+
+Prometheus metrics are exposed at `GET /metrics`. Tracked metrics include HTTP request count, request duration, and rate limit hits.
 
 ## Development
 

@@ -159,6 +159,51 @@ func TestListProjectsWithPagination(t *testing.T) {
 	}
 }
 
+func TestSearch(t *testing.T) {
+	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2.0/search" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("q") != "nginx" {
+			t.Errorf("unexpected query: %s", r.URL.Query().Get("q"))
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"project":    []map[string]any{{"project_id": 1, "name": "library"}},
+			"repository": []map[string]any{{"name": "library/nginx"}},
+		})
+	})
+
+	result, err := client.Search(context.Background(), "nginx")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Projects) != 1 || result.Projects[0].Name != "library" {
+		t.Errorf("unexpected projects: %+v", result.Projects)
+	}
+	if len(result.Repositories) != 1 || result.Repositories[0].Name != "library/nginx" {
+		t.Errorf("unexpected repositories: %+v", result.Repositories)
+	}
+}
+
+func TestListRepositoriesWithQuery(t *testing.T) {
+	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("q") != "name=~nginx" {
+			t.Errorf("expected q=name=~nginx, got q=%s", r.URL.Query().Get("q"))
+		}
+		json.NewEncoder(w).Encode([]harbor.Repository{
+			{Name: "library/nginx", ArtifactCount: 5},
+		})
+	})
+
+	repos, err := client.ListRepositories(context.Background(), "library", harbor.ListOpts{Query: "name=~nginx"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(repos))
+	}
+}
+
 func TestAPIError(t *testing.T) {
 	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -168,4 +213,35 @@ func TestAPIError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for 404 response")
 	}
+}
+
+func TestWithHTTPClient(t *testing.T) {
+	var capturedUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedUA = r.Header.Get("User-Agent")
+		json.NewEncoder(w).Encode(harbor.Project{ProjectID: 1, Name: "test"})
+	}))
+	t.Cleanup(srv.Close)
+
+	customClient := &http.Client{Transport: &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		req.Header.Set("User-Agent", "custom-test-client")
+		return http.DefaultTransport.RoundTrip(req)
+	}}}
+
+	client := harbor.NewClient(srv.URL, "robot$test", "secret", harbor.WithHTTPClient(customClient))
+	_, err := client.GetProject(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedUA != "custom-test-client" {
+		t.Fatalf("expected custom User-Agent, got %q", capturedUA)
+	}
+}
+
+type roundTripFunc struct {
+	fn func(*http.Request) (*http.Response, error)
+}
+
+func (f *roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f.fn(req)
 }

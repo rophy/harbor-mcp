@@ -172,6 +172,7 @@ services:
             secret: test-secret
             redirect_uris:
               - http://localhost:28080/auth/callback
+              - http://localhost:18080/auth/callback
         users:
           - sub: alice
             email: alice@example.com

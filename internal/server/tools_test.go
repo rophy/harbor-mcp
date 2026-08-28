@@ -14,6 +14,13 @@ import (
 
 type mockHarborClient struct{}
 
+func (m *mockHarborClient) Search(_ context.Context, query string) (*harbor.SearchResult, error) {
+	return &harbor.SearchResult{
+		Projects:     []harbor.Project{{ProjectID: 1, Name: "library", RepoCount: 3}},
+		Repositories: []harbor.Repository{{Name: "library/nginx", ArtifactCount: 5}},
+	}, nil
+}
+
 func (m *mockHarborClient) ListProjects(_ context.Context, opts harbor.ListProjectsOpts) ([]harbor.Project, error) {
 	projects := []harbor.Project{
 		{ProjectID: 1, Name: "library", RepoCount: 3},
@@ -79,6 +86,23 @@ func TestNewMCPServer(t *testing.T) {
 	mock := &mockHarborClient{}
 	srv := server.NewMCPServer(mock)
 	require.NotNil(t, srv)
+}
+
+func TestSearchTool(t *testing.T) {
+	mock := &mockHarborClient{}
+	srv := server.NewMCPServer(mock)
+
+	ctx := context.Background()
+	session, err := connect(ctx, srv)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "search",
+		Arguments: map[string]any{"query": "nginx"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Content)
 }
 
 func TestListProjectsTool(t *testing.T) {
