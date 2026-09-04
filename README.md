@@ -51,7 +51,7 @@ volumes:
 
 The container runs the `serve` subcommand by default. Use `docker run <image> help` to view the full documentation.
 
-The `/data` volume stores the SQLite database containing registered OAuth clients and authorization state. Without a persistent volume, all client registrations and tokens are lost on container restart — MCP clients will need to re-register and re-authenticate.
+The `/data` volume stores the SQLite database (registered OAuth clients and authorization state), the JWT signing key (`signing-key.pem`), and the HMAC global secret (`global-secret`). Without a persistent volume, all client registrations, tokens, and signing keys are lost on container restart — MCP clients will need to re-register and re-authenticate.
 
 **Docker networking:** harbor-mcp must be able to reach both the Harbor API (`HARBOR_URL`) and the OIDC provider's token/JWKS endpoints (from the OIDC discovery document).
 
@@ -87,7 +87,7 @@ opencode mcp add harbor-mcp --url https://harbor-mcp.example.com/mcp
 | `SERVER_BASE_URL` | yes | Public URL of this server (used in OAuth redirects) |
 | `SERVER_PORT` | no | Listen port (default: `8080`) |
 | `DATA_DIR` | no | Directory for SQLite database (default: `/data`) |
-| `OAUTH_SIGNING_KEY` | no | PEM-encoded RSA private key for JWT signing (auto-generated if unset) |
+| `OAUTH_SIGNING_KEY` | no | PEM-encoded RSA private key for JWT signing (accepts PKCS#1 or PKCS#8 format). If unset, a key is auto-generated and persisted to `DATA_DIR/signing-key.pem` on first run |
 | `OAUTH_UPSTREAM_EXTERNAL_URL` | no | Browser-reachable URL for upstream IDP (see below) |
 | `TLS_SKIP_VERIFY` | no | Skip TLS certificate verification for Harbor and OIDC endpoints (default: `false`) |
 | `RATE_LIMIT_ENABLED` | no | Enable per-user rate limiting (default: `false`) |

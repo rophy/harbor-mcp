@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/rsa"
 	"time"
 
@@ -15,12 +14,7 @@ type Store interface {
 	RegisterClient(id string, redirectURIs []string)
 }
 
-func NewOAuthProvider(store Store, signingKey *rsa.PrivateKey) fosite.OAuth2Provider {
-	globalSecret := make([]byte, 32)
-	if _, err := rand.Read(globalSecret); err != nil {
-		panic(err)
-	}
-
+func NewOAuthProvider(store Store, signingKey *rsa.PrivateKey, globalSecret []byte) fosite.OAuth2Provider {
 	config := &fosite.Config{
 		AccessTokenLifespan:         time.Hour,
 		RefreshTokenLifespan:        24 * time.Hour,
