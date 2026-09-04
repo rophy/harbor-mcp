@@ -19,7 +19,7 @@ func TestNewOAuthProvider(t *testing.T) {
 	require.NoError(t, err)
 
 	store := auth.NewMemoryStore()
-	provider := auth.NewOAuthProvider(store, key)
+	provider := auth.NewOAuthProvider(store, key, make([]byte, 32))
 	require.NotNil(t, provider)
 }
 

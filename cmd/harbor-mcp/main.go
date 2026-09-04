@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -79,9 +80,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	signingKey, err := loadOrGenerateKey(cfg.OAuthSigningKey)
+	signingKey, err := loadOrGenerateKey(cfg.OAuthSigningKey, cfg.DataDir)
 	if err != nil {
 		return fmt.Errorf("failed to load signing key: %v", err)
+	}
+
+	globalSecret, err := loadOrGenerateGlobalSecret(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("failed to load global secret: %v", err)
 	}
 
 	var upstreamOpts []*http.Client
@@ -105,7 +111,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to open database: %v", err)
 	}
 	defer store.Close()
-	provider := auth.NewOAuthProvider(store, signingKey)
+	provider := auth.NewOAuthProvider(store, signingKey, globalSecret)
 	oauthHandlers := auth.NewOAuthHandlers(provider, store, upstream, cfg.ServerBaseURL)
 
 	var harborOpts []harbor.ClientOption
@@ -157,14 +163,83 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func loadOrGenerateKey(pemData string) (*rsa.PrivateKey, error) {
+func parseRSAPrivateKey(block *pem.Block) (*rsa.PrivateKey, error) {
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse signing key (tried PKCS#1 and PKCS#8): %v", err)
+	}
+	key, ok := parsed.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("PKCS#8 key is not RSA")
+	}
+	return key, nil
+}
+
+func loadOrGenerateKey(pemData string, dataDir string) (*rsa.PrivateKey, error) {
 	if pemData != "" {
 		block, _ := pem.Decode([]byte(pemData))
 		if block == nil {
-			return nil, fmt.Errorf("failed to decode PEM signing key")
+			return nil, fmt.Errorf("failed to decode PEM block from OAUTH_SIGNING_KEY")
 		}
-		return x509.ParsePKCS1PrivateKey(block.Bytes)
+		slog.Info("using signing key from OAUTH_SIGNING_KEY env var")
+		return parseRSAPrivateKey(block)
 	}
-	slog.Warn("no OAUTH_SIGNING_KEY set, generating ephemeral RSA key")
-	return rsa.GenerateKey(rand.Reader, 2048)
+
+	keyPath := filepath.Join(dataDir, "signing-key.pem")
+	data, err := os.ReadFile(keyPath)
+	if err == nil {
+		block, _ := pem.Decode(data)
+		if block == nil {
+			return nil, fmt.Errorf("failed to decode PEM block from %s", keyPath)
+		}
+		slog.Info("loaded signing key from file", "path", keyPath)
+		return parseRSAPrivateKey(block)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to read signing key from %s: %v", keyPath, err)
+	}
+
+	slog.Info("generating new RSA signing key", "path", keyPath)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+	if err := os.WriteFile(keyPath, pemBytes, 0600); err != nil {
+		return nil, fmt.Errorf("failed to save signing key to %s: %v", keyPath, err)
+	}
+	slog.Info("saved signing key", "path", keyPath)
+	return key, nil
+}
+
+func loadOrGenerateGlobalSecret(dataDir string) ([]byte, error) {
+	secretPath := filepath.Join(dataDir, "global-secret")
+	data, err := os.ReadFile(secretPath)
+	if err == nil {
+		if len(data) != 32 {
+			return nil, fmt.Errorf("global secret at %s has invalid length %d (expected 32)", secretPath, len(data))
+		}
+		slog.Info("loaded global secret from file", "path", secretPath)
+		return data, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to read global secret from %s: %v", secretPath, err)
+	}
+
+	slog.Info("generating new global secret", "path", secretPath)
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(secretPath, secret, 0600); err != nil {
+		return nil, fmt.Errorf("failed to save global secret to %s: %v", secretPath, err)
+	}
+	slog.Info("saved global secret", "path", secretPath)
+	return secret, nil
 }

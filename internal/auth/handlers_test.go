@@ -43,7 +43,7 @@ func setupOAuthServerEnv(t *testing.T) *testEnv {
 	require.NoError(t, err)
 
 	store := auth.NewMemoryStore()
-	provider := auth.NewOAuthProvider(store, key)
+	provider := auth.NewOAuthProvider(store, key, make([]byte, 32))
 
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -231,7 +231,7 @@ func TestCallbackEndpoint_UnknownState(t *testing.T) {
 func TestRequireBearerToken_MissingToken(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	store := auth.NewMemoryStore()
-	provider := auth.NewOAuthProvider(store, key)
+	provider := auth.NewOAuthProvider(store, key, make([]byte, 32))
 
 	handler := auth.RequireBearerToken(provider, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -247,7 +247,7 @@ func TestRequireBearerToken_MissingToken(t *testing.T) {
 func TestRequireBearerToken_InvalidToken(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	store := auth.NewMemoryStore()
-	provider := auth.NewOAuthProvider(store, key)
+	provider := auth.NewOAuthProvider(store, key, make([]byte, 32))
 
 	handler := auth.RequireBearerToken(provider, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -266,7 +266,7 @@ func TestCallbackEndpoint_UpstreamTokenExchangeFails(t *testing.T) {
 	require.NoError(t, err)
 
 	store := auth.NewMemoryStore()
-	provider := auth.NewOAuthProvider(store, key)
+	provider := auth.NewOAuthProvider(store, key, make([]byte, 32))
 
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -436,7 +436,7 @@ func TestCallbackEndpoint_HappyPath(t *testing.T) {
 func TestRequireBearerToken_SetsSubjectInContext(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	store := auth.NewMemoryStore()
-	provider := auth.NewOAuthProvider(store, key)
+	provider := auth.NewOAuthProvider(store, key, make([]byte, 32))
 
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -529,7 +529,7 @@ func TestRequireBearerToken_SetsSubjectInContext(t *testing.T) {
 func TestRequireBearerToken_NonBearerScheme(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	store := auth.NewMemoryStore()
-	provider := auth.NewOAuthProvider(store, key)
+	provider := auth.NewOAuthProvider(store, key, make([]byte, 32))
 
 	handler := auth.RequireBearerToken(provider, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
