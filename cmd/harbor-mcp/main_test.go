@@ -69,6 +69,16 @@ func TestLoadOrGenerateKey_InvalidKeyBytes(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLoadOrGenerateKey_UnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "signing-key.pem")
+	require.NoError(t, os.WriteFile(keyPath, []byte("data"), 0000))
+
+	_, err := loadOrGenerateKey("", dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read signing key")
+}
+
 func TestLoadOrGenerateGlobalSecret_GeneratesAndPersists(t *testing.T) {
 	dir := t.TempDir()
 	secret, err := loadOrGenerateGlobalSecret(dir)
@@ -78,4 +88,24 @@ func TestLoadOrGenerateGlobalSecret_GeneratesAndPersists(t *testing.T) {
 	secret2, err := loadOrGenerateGlobalSecret(dir)
 	require.NoError(t, err)
 	assert.Equal(t, secret, secret2, "reloaded secret should match")
+}
+
+func TestLoadOrGenerateGlobalSecret_UnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "global-secret")
+	require.NoError(t, os.WriteFile(secretPath, []byte("data"), 0000))
+
+	_, err := loadOrGenerateGlobalSecret(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read global secret")
+}
+
+func TestLoadOrGenerateGlobalSecret_InvalidLength(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "global-secret")
+	require.NoError(t, os.WriteFile(secretPath, []byte("too-short"), 0600))
+
+	_, err := loadOrGenerateGlobalSecret(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid length")
 }

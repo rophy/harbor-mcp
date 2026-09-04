@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -188,13 +189,17 @@ func loadOrGenerateKey(pemData string, dataDir string) (*rsa.PrivateKey, error) 
 	}
 
 	keyPath := filepath.Join(dataDir, "signing-key.pem")
-	if data, err := os.ReadFile(keyPath); err == nil {
+	data, err := os.ReadFile(keyPath)
+	if err == nil {
 		block, _ := pem.Decode(data)
 		if block == nil {
 			return nil, fmt.Errorf("failed to decode PEM block from %s", keyPath)
 		}
 		slog.Info("loaded signing key from file", "path", keyPath)
 		return parseRSAPrivateKey(block)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to read signing key from %s: %v", keyPath, err)
 	}
 
 	slog.Info("generating new RSA signing key", "path", keyPath)
@@ -215,9 +220,16 @@ func loadOrGenerateKey(pemData string, dataDir string) (*rsa.PrivateKey, error) 
 
 func loadOrGenerateGlobalSecret(dataDir string) ([]byte, error) {
 	secretPath := filepath.Join(dataDir, "global-secret")
-	if data, err := os.ReadFile(secretPath); err == nil && len(data) == 32 {
+	data, err := os.ReadFile(secretPath)
+	if err == nil {
+		if len(data) != 32 {
+			return nil, fmt.Errorf("global secret at %s has invalid length %d (expected 32)", secretPath, len(data))
+		}
 		slog.Info("loaded global secret from file", "path", secretPath)
 		return data, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to read global secret from %s: %v", secretPath, err)
 	}
 
 	slog.Info("generating new global secret", "path", secretPath)
